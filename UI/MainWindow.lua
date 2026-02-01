@@ -258,7 +258,22 @@ function ns:CreateMainWindow()
     frame.scrollBar = scrollBar
     frame.scrollView = view
 
-    -- Bottom buttons
+    -- Bottom buttons (left side)
+    local renameBtn = ns.UI:CreateButton(frame, "Rename", 60, 24)
+    renameBtn:SetPoint("BOTTOMLEFT", 10, 12)
+    renameBtn:SetScript("OnClick", function()
+        ns:ShowRenameWishlistDialog()
+    end)
+    frame.renameBtn = renameBtn
+
+    local deleteBtn = ns.UI:CreateButton(frame, "Delete", 60, 24)
+    deleteBtn:SetPoint("LEFT", renameBtn, "RIGHT", 4, 0)
+    deleteBtn:SetScript("OnClick", function()
+        ns:ShowDeleteWishlistDialog()
+    end)
+    frame.deleteBtn = deleteBtn
+
+    -- Bottom buttons (right side)
     local browseBtn = ns.UI:CreateButton(frame, "Browse", 70, 24)
     browseBtn:SetPoint("BOTTOMRIGHT", -10, 12)
     browseBtn:SetScript("OnClick", function()
@@ -342,6 +357,15 @@ function ns:RefreshMainWindow()
     -- Update dropdown text
     UIDropDownMenu_SetText(frame.wishlistDropdown, activeName)
 
+    -- Update rename/delete button states (disable for "Default" wishlist)
+    local isDefault = (activeName == "Default")
+    if frame.renameBtn then
+        frame.renameBtn:SetEnabled(not isDefault)
+    end
+    if frame.deleteBtn then
+        frame.deleteBtn:SetEnabled(not isDefault)
+    end
+
     -- Update collected count with percentage
     local collected, total = self:GetWishlistProgress()
     if total > 0 then
@@ -403,6 +427,84 @@ function ns:ShowNewWishlistDialog()
         hideOnEscape = true,
     }
     StaticPopup_Show("LOOTWISHLIST_NEW_WISHLIST")
+end
+
+-- Show rename wishlist dialog
+function ns:ShowRenameWishlistDialog()
+    local currentName = self:GetActiveWishlistName()
+    if currentName == "Default" then
+        print("|cff00ccffLootWishlist|r: Cannot rename the Default wishlist")
+        return
+    end
+
+    StaticPopupDialogs["LOOTWISHLIST_RENAME_WISHLIST"] = {
+        text = "Rename Wishlist:",
+        button1 = "Rename",
+        button2 = "Cancel",
+        hasEditBox = true,
+        OnShow = function(self)
+            self.EditBox:SetText(currentName)
+            self.EditBox:HighlightText()
+        end,
+        OnAccept = function(self)
+            local newName = self.EditBox:GetText()
+            if newName and newName ~= "" and newName ~= currentName then
+                local success, err = ns:RenameWishlist(currentName, newName)
+                if success then
+                    selectedItemID = nil
+                    ns:RefreshMainWindow()
+                    -- Refresh browser if open
+                    if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
+                        ns:RefreshBrowser()
+                    end
+                else
+                    print("|cff00ccffLootWishlist|r: " .. (err or "Failed to rename wishlist"))
+                end
+            end
+        end,
+        EditBoxOnEnterPressed = function(self)
+            local parent = self:GetParent()
+            StaticPopupDialogs["LOOTWISHLIST_RENAME_WISHLIST"].OnAccept(parent)
+            parent:Hide()
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+    }
+    StaticPopup_Show("LOOTWISHLIST_RENAME_WISHLIST")
+end
+
+-- Show delete wishlist dialog
+function ns:ShowDeleteWishlistDialog()
+    local currentName = self:GetActiveWishlistName()
+    if currentName == "Default" then
+        print("|cff00ccffLootWishlist|r: Cannot delete the Default wishlist")
+        return
+    end
+
+    StaticPopupDialogs["LOOTWISHLIST_DELETE_WISHLIST"] = {
+        text = "Delete wishlist \"" .. currentName .. "\"?\n\nThis cannot be undone.",
+        button1 = "Delete",
+        button2 = "Cancel",
+        OnAccept = function()
+            local success, err = ns:DeleteWishlist(currentName)
+            if success then
+                selectedItemID = nil
+                ns:RefreshMainWindow()
+                -- Refresh browser if open
+                if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
+                    ns:RefreshBrowser()
+                end
+            else
+                print("|cff00ccffLootWishlist|r: " .. (err or "Failed to delete wishlist"))
+            end
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        showAlert = true,
+    }
+    StaticPopup_Show("LOOTWISHLIST_DELETE_WISHLIST")
 end
 
 -- Toggle item browser
