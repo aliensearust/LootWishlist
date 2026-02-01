@@ -13,7 +13,7 @@ jobs:
 
       - uses: BigWigsMods/packager@v2
         with:
-          args: -g . -r ./release
+          args: -r ./release
 
       - uses: softprops/action-gh-release@v2
         with:
