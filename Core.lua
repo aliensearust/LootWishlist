@@ -64,11 +64,14 @@ function ns:InitMinimapIcon()
         OnClick = function(_, button)
             if button == "LeftButton" then
                 ns:ToggleMainWindow()
+            elseif button == "RightButton" then
+                ns:OpenSettings()
             end
         end,
         OnTooltipShow = function(tooltip)
             tooltip:AddLine("LootWishlist")
             tooltip:AddLine("|cffffffffLeft-click|r to toggle window", 0.7, 0.7, 0.7)
+            tooltip:AddLine("|cffffffffRight-click|r to open options", 0.7, 0.7, 0.7)
         end,
     })
 
