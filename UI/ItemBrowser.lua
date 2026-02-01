@@ -7,7 +7,7 @@ local addonName, ns = ...
 local pairs, ipairs, type, math = pairs, ipairs, type, math
 local wipe, tinsert = wipe, table.insert
 local CreateFrame, CreateFramePool = CreateFrame, CreateFramePool
-local C_Timer, C_EncounterJournal, C_Item = C_Timer, C_EncounterJournal, C_Item
+local C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode = C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode
 local EJ_SelectTier, EJ_SetLootFilter, EJ_ResetLootFilter = EJ_SelectTier, EJ_SetLootFilter, EJ_ResetLootFilter
 local EJ_GetInstanceByIndex, EJ_SelectInstance, EJ_GetEncounterInfoByIndex, EJ_SelectEncounter = EJ_GetInstanceByIndex, EJ_SelectInstance, EJ_GetEncounterInfoByIndex, EJ_SelectEncounter
 local UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText = UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText
@@ -48,6 +48,26 @@ local SIZE_PRESETS = {
 local function GetBrowserDimensions()
     local sizeID = ns.db and ns.db.settings and ns.db.settings.browserSize or 1
     return SIZE_PRESETS[sizeID] or SIZE_PRESETS[1]
+end
+
+-- Get current M+ season dungeon instance IDs dynamically
+local function GetCurrentSeasonInstanceIDs()
+    local instanceIDs = {}
+    local mapTable = C_ChallengeMode.GetMapTable()
+
+    if mapTable then
+        for _, challengeModeID in ipairs(mapTable) do
+            local name, id, timeLimit, texture, bgTexture, mapID = C_ChallengeMode.GetMapUIInfo(challengeModeID)
+            if mapID then
+                local journalInstanceID = C_EncounterJournal.GetInstanceForGameMap(mapID)
+                if journalInstanceID then
+                    instanceIDs[journalInstanceID] = true
+                end
+            end
+        end
+    end
+
+    return instanceIDs
 end
 
 -- Expansion tier IDs (EJ tiers)
@@ -128,6 +148,7 @@ local browserState = {
     expandedBosses = {},
     classFilter = 0,
     slotFilter = "ALL",
+    currentSeasonFilter = false,  -- true when "Current Season" is selected
 }
 
 local function GetBrowserState()
@@ -424,6 +445,10 @@ function ns:InitTypeDropdown(dropdown)
                 UIDropDownMenu_SetText(dropdown, typeInfo.name)
                 state.selectedInstance = nil
                 state.expandedBosses = {}
+                -- Reset current season filter when switching to raids
+                if typeInfo.id == "raid" then
+                    state.currentSeasonFilter = false
+                end
                 ns:RefreshBrowser()
             end
             UIDropDownMenu_AddButton(info)
@@ -437,13 +462,32 @@ end
 -- Initialize expansion dropdown
 function ns:InitExpansionDropdown(dropdown)
     UIDropDownMenu_Initialize(dropdown, function(self, level)
+        local state = GetBrowserState()
+
+        -- Add "Current Season" option for dungeons
+        if state.instanceType == "dungeon" then
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = "Current Season"
+            info.checked = state.currentSeasonFilter
+            info.func = function()
+                local state = GetBrowserState()
+                state.currentSeasonFilter = true
+                state.expansion = nil  -- Clear specific expansion
+                UIDropDownMenu_SetText(dropdown, "Current Season")
+                state.selectedInstance = nil
+                state.expandedBosses = {}
+                ns:RefreshBrowser()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+
         for _, exp in ipairs(EXPANSION_TIERS) do
             local info = UIDropDownMenu_CreateInfo()
             info.text = exp.name
-            local state = GetBrowserState()
-            info.checked = (state.expansion == exp.id)
+            info.checked = (not state.currentSeasonFilter and state.expansion == exp.id)
             info.func = function()
                 local state = GetBrowserState()
+                state.currentSeasonFilter = false
                 state.expansion = exp.id
                 UIDropDownMenu_SetText(dropdown, exp.name)
                 state.selectedInstance = nil
@@ -508,10 +552,14 @@ function ns:RefreshBrowser()
     UIDropDownMenu_SetText(ns.ItemBrowser.typeDropdown, displayName)
 
     -- Update expansion dropdown text
-    for _, exp in ipairs(EXPANSION_TIERS) do
-        if exp.id == state.expansion then
-            UIDropDownMenu_SetText(ns.ItemBrowser.expDropdown, exp.name)
-            break
+    if state.currentSeasonFilter then
+        UIDropDownMenu_SetText(ns.ItemBrowser.expDropdown, "Current Season")
+    else
+        for _, exp in ipairs(EXPANSION_TIERS) do
+            if exp.id == state.expansion then
+                UIDropDownMenu_SetText(ns.ItemBrowser.expDropdown, exp.name)
+                break
+            end
         end
     end
 
@@ -531,11 +579,13 @@ function ns:RefreshBrowser()
         end
     end
 
-    -- Set the EJ tier and loot filter
-    if not state.expansion then
-        state.expansion = EXPANSION_TIERS[1].id  -- Default to "The War Within"
+    -- Set the EJ tier and loot filter (skip tier selection for current season)
+    if not state.currentSeasonFilter then
+        if not state.expansion then
+            state.expansion = EXPANSION_TIERS[1].id  -- Default to "The War Within"
+        end
+        EJ_SelectTier(state.expansion)
     end
-    EJ_SelectTier(state.expansion)
     if state.classFilter > 0 then
         EJ_SetLootFilter(state.classFilter, 0)
     else
@@ -558,48 +608,95 @@ function ns:RefreshLeftPanel()
 
     local isRaid = (state.instanceType == "raid")
     local yOffset = 0
-    local instanceIndex = 1
     local firstInstance = nil
 
-    -- Iterate instances
-    while true do
-        local instanceID, instanceName = EJ_GetInstanceByIndex(instanceIndex, isRaid)
-        if not instanceID then break end
+    -- Handle current season filter for dungeons
+    if state.currentSeasonFilter and not isRaid then
+        local seasonInstanceIDs = GetCurrentSeasonInstanceIDs()
 
-        -- Always show all instances (search only filters items, not instance list)
-        local row = instanceRowPool:Acquire()
+        -- Iterate through ALL expansion tiers to find season dungeons
+        for tierIdx = 11, 1, -1 do
+            EJ_SelectTier(tierIdx)
+            local instanceIndex = 1
 
-        -- Initialize row if new (check if row.name exists)
-        if not row.name then
-            ns.UI:InitInstanceListRow(row, dims)
+            while true do
+                local instanceID, instanceName = EJ_GetInstanceByIndex(instanceIndex, false)  -- false = dungeons
+                if not instanceID then break end
+
+                -- Only show dungeons in the current M+ season
+                if seasonInstanceIDs[instanceID] then
+                    local row = instanceRowPool:Acquire()
+
+                    if not row.name then
+                        ns.UI:InitInstanceListRow(row, dims)
+                    end
+
+                    row:SetWidth(scrollChild:GetWidth())
+                    row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
+                    row.name:SetText(instanceName)
+                    row.instanceID = instanceID
+                    row.instanceName = instanceName
+
+                    if not firstInstance then
+                        firstInstance = instanceID
+                    end
+
+                    local isSelected = (state.selectedInstance == instanceID)
+                    ns.UI:SetInstanceRowSelected(row, isSelected)
+
+                    row:SetScript("OnClick", function()
+                        local state = GetBrowserState()
+                        state.selectedInstance = instanceID
+                        state.expandedBosses = {}
+                        ns:RefreshBrowser()
+                    end)
+
+                    row:Show()
+                    yOffset = yOffset - dims.instanceRowHeight
+                end
+
+                instanceIndex = instanceIndex + 1
+            end
         end
+    else
+        -- Standard expansion-based iteration
+        local instanceIndex = 1
 
-        row:SetWidth(scrollChild:GetWidth())
-        row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
-        row.name:SetText(instanceName)
-        row.instanceID = instanceID
-        row.instanceName = instanceName
+        while true do
+            local instanceID, instanceName = EJ_GetInstanceByIndex(instanceIndex, isRaid)
+            if not instanceID then break end
 
-        -- Track first instance for auto-select
-        if not firstInstance then
-            firstInstance = instanceID
+            local row = instanceRowPool:Acquire()
+
+            if not row.name then
+                ns.UI:InitInstanceListRow(row, dims)
+            end
+
+            row:SetWidth(scrollChild:GetWidth())
+            row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
+            row.name:SetText(instanceName)
+            row.instanceID = instanceID
+            row.instanceName = instanceName
+
+            if not firstInstance then
+                firstInstance = instanceID
+            end
+
+            local isSelected = (state.selectedInstance == instanceID)
+            ns.UI:SetInstanceRowSelected(row, isSelected)
+
+            row:SetScript("OnClick", function()
+                local state = GetBrowserState()
+                state.selectedInstance = instanceID
+                state.expandedBosses = {}
+                ns:RefreshBrowser()
+            end)
+
+            row:Show()
+            yOffset = yOffset - dims.instanceRowHeight
+
+            instanceIndex = instanceIndex + 1
         end
-
-        -- Selection state
-        local isSelected = (state.selectedInstance == instanceID)
-        ns.UI:SetInstanceRowSelected(row, isSelected)
-
-        row:SetScript("OnClick", function()
-            local state = GetBrowserState()
-            state.selectedInstance = instanceID
-            state.expandedBosses = {}
-            ns:RefreshBrowser()
-        end)
-
-        row:Show()
-        yOffset = yOffset - dims.instanceRowHeight
-
-        instanceIndex = instanceIndex + 1
     end
 
     -- Auto-select first instance if none selected
