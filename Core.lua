@@ -158,3 +158,40 @@ function ns:ResetDatabase()
     }
     StaticPopup_Show("LOOTWISHLIST_RESET_CONFIRM")
 end
+
+function ns:ShowDeleteAllDataDialog()
+    StaticPopupDialogs["LOOTWISHLIST_DELETE_ALL_CONFIRM"] = {
+        text = "Delete ALL LootWishlist data?\n\nThis will remove all wishlists, settings, and collected item tracking.\n\nType WISHLIST to confirm:",
+        button1 = "Delete",
+        button2 = "Cancel",
+        hasEditBox = true,
+        showAlert = true,
+        OnShow = function(self)
+            local acceptButton = self.button1 or (self.Buttons and self.Buttons[1])
+            if acceptButton then acceptButton:Disable() end
+            self.EditBox:SetText("")
+            self.EditBox:SetFocus()
+        end,
+        EditBoxOnTextChanged = function(self)
+            local parent = self:GetParent()
+            local acceptButton = parent.button1 or (parent.Buttons and parent.Buttons[1])
+            if acceptButton then
+                if self:GetText():upper() == "WISHLIST" then
+                    acceptButton:Enable()
+                else
+                    acceptButton:Disable()
+                end
+            end
+        end,
+        OnAccept = function()
+            wipe(LootWishlistDB)
+            wipe(LootWishlistCharDB)
+            ns:InitializeDatabase()
+            ReloadUI()
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+    }
+    StaticPopup_Show("LOOTWISHLIST_DELETE_ALL_CONFIRM")
+end

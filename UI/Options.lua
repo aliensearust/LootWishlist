@@ -12,115 +12,168 @@ local SOUND_OPTIONS = {
     {value = 567482, label = "Treasure Found"},
 }
 
-function ns:InitOptionsPanel()
-    local category = Settings.RegisterVerticalLayoutCategory("LootWishlist")
+local function CreateOptionsPanel()
+    local panel = CreateFrame("Frame")
+    panel:SetSize(600, 400)
+    panel.name = "LootWishlist"
 
-    -- Chat Alerts
-    do
-        local variable = "LootWishlist_ChatAlerts"
-        local name = "Enable Chat Alerts"
-        local tooltip = "Show a message in chat when a wishlist item drops."
+    local yOffset = -20
+    local leftMargin = 20
 
-        -- Signature: (category, variable, variableKey, variableTbl, variableType, name, defaultValue)
-        local setting = Settings.RegisterAddOnSetting(category, variable, "chatAlertEnabled", ns.db.settings, Settings.VarType.Boolean, name, true)
-        Settings.SetOnValueChangedCallback(variable, function(_, _, val)
-            ns.db.settings.chatAlertEnabled = val
-        end)
-        Settings.CreateCheckbox(category, setting, tooltip)
-    end
+    -- Title
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", leftMargin, yOffset)
+    title:SetText("LootWishlist Settings")
+    yOffset = yOffset - 30
 
-    -- Sound Alerts
-    do
-        local variable = "LootWishlist_SoundAlerts"
-        local name = "Enable Sound Alerts"
-        local tooltip = "Play a sound when a wishlist item drops."
+    -- Chat Alerts Checkbox
+    local chatAlerts = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
+    chatAlerts:SetPoint("TOPLEFT", leftMargin, yOffset)
+    chatAlerts.Text:SetText("Enable Chat Alerts")
+    chatAlerts:SetChecked(ns.db.settings.chatAlertEnabled)
+    chatAlerts:SetScript("OnClick", function(self)
+        ns.db.settings.chatAlertEnabled = self:GetChecked()
+    end)
+    chatAlerts.tooltipText = "Show a message in chat when a wishlist item drops."
+    yOffset = yOffset - 30
 
-        local setting = Settings.RegisterAddOnSetting(category, variable, "soundEnabled", ns.db.settings, Settings.VarType.Boolean, name, true)
-        Settings.SetOnValueChangedCallback(variable, function(_, _, val)
-            ns.db.settings.soundEnabled = val
-        end)
-        Settings.CreateCheckbox(category, setting, tooltip)
-    end
+    -- Sound Alerts Checkbox
+    local soundAlerts = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
+    soundAlerts:SetPoint("TOPLEFT", leftMargin, yOffset)
+    soundAlerts.Text:SetText("Enable Sound Alerts")
+    soundAlerts:SetChecked(ns.db.settings.soundEnabled)
+    soundAlerts:SetScript("OnClick", function(self)
+        ns.db.settings.soundEnabled = self:GetChecked()
+    end)
+    soundAlerts.tooltipText = "Play a sound when a wishlist item drops."
+    yOffset = yOffset - 30
 
-    -- Glow Effects
-    do
-        local variable = "LootWishlist_GlowEffects"
-        local name = "Enable Glow Effects"
-        local tooltip = "Show a glow effect on wishlist items in the loot window."
+    -- Glow Effects Checkbox
+    local glowEffects = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
+    glowEffects:SetPoint("TOPLEFT", leftMargin, yOffset)
+    glowEffects.Text:SetText("Enable Glow Effects")
+    glowEffects:SetChecked(ns.db.settings.glowEnabled)
+    glowEffects:SetScript("OnClick", function(self)
+        ns.db.settings.glowEnabled = self:GetChecked()
+    end)
+    glowEffects.tooltipText = "Show a glow effect on wishlist items in the loot window."
+    yOffset = yOffset - 30
 
-        local setting = Settings.RegisterAddOnSetting(category, variable, "glowEnabled", ns.db.settings, Settings.VarType.Boolean, name, true)
-        Settings.SetOnValueChangedCallback(variable, function(_, _, val)
-            ns.db.settings.glowEnabled = val
-        end)
-        Settings.CreateCheckbox(category, setting, tooltip)
-    end
+    -- Hide Minimap Icon Checkbox
+    local hideMinimapIcon = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
+    hideMinimapIcon:SetPoint("TOPLEFT", leftMargin, yOffset)
+    hideMinimapIcon.Text:SetText("Hide Minimap Icon")
+    hideMinimapIcon:SetChecked(ns.db.settings.minimapIcon.hide)
+    hideMinimapIcon:SetScript("OnClick", function(self)
+        ns.db.settings.minimapIcon.hide = self:GetChecked()
+        local LDBIcon = LibStub("LibDBIcon-1.0")
+        if self:GetChecked() then
+            LDBIcon:Hide("LootWishlist")
+        else
+            LDBIcon:Show("LootWishlist")
+        end
+    end)
+    hideMinimapIcon.tooltipText = "Hide the LootWishlist minimap button."
+    yOffset = yOffset - 40
 
     -- Alert Sound Dropdown
-    do
-        local variable = "LootWishlist_AlertSound"
-        local name = "Alert Sound"
-        local tooltip = "Sound to play when a wishlist item drops."
+    local soundLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    soundLabel:SetPoint("TOPLEFT", leftMargin, yOffset)
+    soundLabel:SetText("Alert Sound:")
 
-        local function GetOptions()
-            local container = Settings.CreateControlTextContainer()
-            for _, sound in ipairs(SOUND_OPTIONS) do
-                container:Add(sound.value, sound.label)
-            end
-            return container:GetData()
+    local soundDropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
+    soundDropdown:SetPoint("LEFT", soundLabel, "RIGHT", 10, 0)
+    soundDropdown:SetWidth(180)
+
+    -- Helper to get current sound label
+    local function GetSoundLabel(value)
+        for _, sound in ipairs(SOUND_OPTIONS) do
+            if sound.value == value then return sound.label end
         end
-
-        local setting = Settings.RegisterAddOnSetting(category, variable, "alertSound", ns.db.settings, Settings.VarType.Number, name, 8959)
-        Settings.SetOnValueChangedCallback(variable, function(_, _, val)
-            ns.db.settings.alertSound = val
-        end)
-        Settings.CreateDropdown(category, setting, GetOptions, tooltip)
+        return "Raid Warning"
     end
+
+    soundDropdown:SetupMenu(function(dropdown, rootDescription)
+        for _, sound in ipairs(SOUND_OPTIONS) do
+            rootDescription:CreateRadio(sound.label,
+                function() return ns.db.settings.alertSound == sound.value end,
+                function()
+                    ns.db.settings.alertSound = sound.value
+                    dropdown:SetText(sound.label)
+                    PlaySound(sound.value)
+                end)
+        end
+    end)
+    soundDropdown:SetText(GetSoundLabel(ns.db.settings.alertSound))
+    yOffset = yOffset - 40
 
     -- Browser Size Dropdown
-    do
-        local variable = "LootWishlist_BrowserSize"
-        local name = "Item Browser Size"
-        local tooltip = "Size of the Item Browser window. Requires reopening the browser to take effect."
+    local browserLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    browserLabel:SetPoint("TOPLEFT", leftMargin, yOffset)
+    browserLabel:SetText("Item Browser Size:")
 
-        local function GetOptions()
-            local container = Settings.CreateControlTextContainer()
-            container:Add(1, "Normal")
-            container:Add(2, "Large")
-            return container:GetData()
-        end
+    local browserDropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
+    browserDropdown:SetPoint("LEFT", browserLabel, "RIGHT", 10, 0)
+    browserDropdown:SetWidth(120)
 
-        local setting = Settings.RegisterAddOnSetting(category, variable, "browserSize", ns.db.settings, Settings.VarType.Number, name, 1)
-        Settings.SetOnValueChangedCallback(variable, function(_, _, val)
-            ns.db.settings.browserSize = val
-            if ns.ItemBrowser then
-                ns.ItemBrowser:Hide()
-                ns.ItemBrowser = nil
-                -- Clear row pools so they recreate with new sizes
-                ns:ClearBrowserRowPools()
-            end
-        end)
-        Settings.CreateDropdown(category, setting, GetOptions, tooltip)
-    end
+    local browserSizeLabels = { [1] = "Normal", [2] = "Large" }
 
-    -- Hide Minimap Icon
-    do
-        local variable = "LootWishlist_HideMinimapIcon"
-        local name = "Hide Minimap Icon"
-        local tooltip = "Hide the LootWishlist minimap button."
+    browserDropdown:SetupMenu(function(dropdown, rootDescription)
+        rootDescription:CreateRadio("Normal",
+            function() return ns.db.settings.browserSize == 1 end,
+            function()
+                ns.db.settings.browserSize = 1
+                dropdown:SetText("Normal")
+                if ns.ItemBrowser then
+                    ns.ItemBrowser:Hide()
+                    ns.ItemBrowser = nil
+                    ns:ClearBrowserRowPools()
+                end
+            end)
+        rootDescription:CreateRadio("Large",
+            function() return ns.db.settings.browserSize == 2 end,
+            function()
+                ns.db.settings.browserSize = 2
+                dropdown:SetText("Large")
+                if ns.ItemBrowser then
+                    ns.ItemBrowser:Hide()
+                    ns.ItemBrowser = nil
+                    ns:ClearBrowserRowPools()
+                end
+            end)
+    end)
+    browserDropdown:SetText(browserSizeLabels[ns.db.settings.browserSize] or "Normal")
+    yOffset = yOffset - 50
 
-        local setting = Settings.RegisterAddOnSetting(category, variable, "hide", ns.db.settings.minimapIcon, Settings.VarType.Boolean, name, false)
-        Settings.SetOnValueChangedCallback(variable, function(_, _, val)
-            ns.db.settings.minimapIcon.hide = val
-            local LDBIcon = LibStub("LibDBIcon-1.0")
-            if val then
-                LDBIcon:Hide("LootWishlist")
-            else
-                LDBIcon:Show("LootWishlist")
-            end
-        end)
-        Settings.CreateCheckbox(category, setting, tooltip)
-    end
+    -- Danger Zone Section
+    local dangerHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    dangerHeader:SetPoint("TOPLEFT", leftMargin, yOffset)
+    dangerHeader:SetText("Danger Zone")
+    dangerHeader:SetTextColor(1, 0.3, 0.3)
+    yOffset = yOffset - 25
 
+    local dangerWarning = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    dangerWarning:SetPoint("TOPLEFT", leftMargin, yOffset)
+    dangerWarning:SetText("Permanently delete all wishlists, settings, and collected item tracking.")
+    dangerWarning:SetTextColor(0.7, 0.7, 0.7)
+    yOffset = yOffset - 25
+
+    -- Delete All Data Button
+    local deleteButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    deleteButton:SetSize(140, 25)
+    deleteButton:SetPoint("TOPLEFT", leftMargin, yOffset)
+    deleteButton:SetText("Delete All Data")
+    deleteButton.Text:SetTextColor(1, 0.3, 0.3)
+    deleteButton:SetScript("OnClick", function()
+        ns:ShowDeleteAllDataDialog()
+    end)
+
+    return panel
+end
+
+function ns:InitOptionsPanel()
+    local panel = CreateOptionsPanel()
+    local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
     Settings.RegisterAddOnCategory(category)
     ns.settingsCategory = category
 end

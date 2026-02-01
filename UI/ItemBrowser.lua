@@ -1041,4 +1041,8 @@ function ns:ClearBrowserRowPools()
     if instanceRowPool then instanceRowPool:ReleaseAll() end
     if bossRowPool then bossRowPool:ReleaseAll() end
     if lootRowPool then lootRowPool:ReleaseAll() end
+    -- Nil out pools so they get recreated with new parent frames
+    instanceRowPool = nil
+    bossRowPool = nil
+    lootRowPool = nil
 end
