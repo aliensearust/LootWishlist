@@ -62,7 +62,7 @@ function ns:DeleteWishlist(name)
 
     -- Switch to Default if active wishlist was deleted
     if self:GetActiveWishlistName() == name then
-        self:SetSetting("activeWishlist", "Default")
+        self:SetCharSetting("activeWishlist", "Default")
     end
 
     return true
@@ -91,7 +91,7 @@ function ns:RenameWishlist(oldName, newName)
 
     -- Update active wishlist if it was renamed
     if self:GetActiveWishlistName() == oldName then
-        self:SetSetting("activeWishlist", newName)
+        self:SetCharSetting("activeWishlist", newName)
     end
 
     return true
@@ -129,7 +129,7 @@ function ns:SetActiveWishlist(name)
         return false, "Wishlist does not exist"
     end
 
-    self:SetSetting("activeWishlist", name)
+    self:SetCharSetting("activeWishlist", name)
     return true
 end
 

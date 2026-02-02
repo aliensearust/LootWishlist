@@ -8,7 +8,7 @@ local pairs, ipairs, type = pairs, ipairs, type
 local tinsert, wipe = table.insert, wipe
 
 -- Database version for migrations
-local DB_VERSION = 4
+local DB_VERSION = 5
 
 -- Track constants (upgrade tracks for TWW season gear)
 ns.TRACKS = {"explorer", "adventurer", "veteran", "champion", "hero", "myth"}
@@ -62,7 +62,6 @@ local DEFAULTS = {
         soundEnabled = true,
         glowEnabled = true,
         chatAlertEnabled = true,
-        activeWishlist = "Default",
         alertSound = 8959, -- SOUNDKIT.RAID_WARNING
         browserSize = 1, -- 1 = Normal, 2 = Large
         collapsedGroups = {},  -- Persist collapse state
@@ -78,6 +77,7 @@ local DEFAULTS = {
 local CHAR_DEFAULTS = {
     collected = {},
     checkedItems = {},
+    activeWishlist = "Default",
 }
 
 -- Deep merge: copy missing keys from source to target
@@ -171,12 +171,20 @@ function ns:MigrateDatabase()
         end
     end
 
+    -- Version 4 -> 5 migration: Move activeWishlist to per-character
+    if db.version < 5 then
+        if db.settings and db.settings.activeWishlist then
+            LootWishlistCharDB.activeWishlist = db.settings.activeWishlist
+            db.settings.activeWishlist = nil
+        end
+    end
+
     db.version = DB_VERSION
 end
 
 -- Get active wishlist name
 function ns:GetActiveWishlistName()
-    return self.db.settings.activeWishlist or "Default"
+    return self.charDB.activeWishlist or "Default"
 end
 
 -- Get active wishlist data
@@ -203,6 +211,11 @@ end
 -- Set setting
 function ns:SetSetting(key, value)
     self.db.settings[key] = value
+end
+
+-- Set character-specific setting
+function ns:SetCharSetting(key, value)
+    self.charDB[key] = value
 end
 
 -- Check if item is collected on this character
