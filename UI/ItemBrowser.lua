@@ -24,12 +24,12 @@ local SIZE_PRESETS = {
         lootSlotFont = "GameFontNormalSmall",
         instanceFont = "GameFontNormalSmall",
         bossFont = "GameFontNormal",
-        searchWidth = 130,
-        typeDropdown = 90,
-        expDropdown = 130,
-        classDropdown = 110,
-        slotDropdown = 90,
-        diffDropdown = 90,
+        searchWidth = 150,
+        typeDropdown = 100,
+        expDropdown = 140,
+        classDropdown = 120,
+        slotDropdown = 100,
+        diffDropdown = 100,
     },
     [2] = {  -- Large
         width = 750, height = 625, leftPanel = 175,
@@ -39,12 +39,12 @@ local SIZE_PRESETS = {
         lootSlotFont = "GameFontNormal",
         instanceFont = "GameFontNormal",
         bossFont = "GameFontNormalLarge",
-        searchWidth = 160,
-        typeDropdown = 110,
-        expDropdown = 160,
-        classDropdown = 135,
-        slotDropdown = 110,
-        diffDropdown = 110,
+        searchWidth = 175,
+        typeDropdown = 120,
+        expDropdown = 170,
+        classDropdown = 145,
+        slotDropdown = 120,
+        diffDropdown = 120,
     },
 }
 
@@ -244,35 +244,13 @@ function ns:CreateItemBrowser()
         end
     end)
 
-    -- Filter row 1: Type and Expansion
+    -- Filter row 1: Search, Type, Expansion
     local filterRow1 = CreateFrame("Frame", nil, frame)
     filterRow1:SetPoint("TOPLEFT", titleBar, "BOTTOMLEFT", 10, -10)
     filterRow1:SetPoint("TOPRIGHT", titleBar, "BOTTOMRIGHT", -10, -10)
     filterRow1:SetHeight(25)
 
-    local typeLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    typeLabel:SetPoint("LEFT", 0, 2)
-    typeLabel:SetText("Type:")
-
-    local typeDropdown = ns.UI:CreateDropdown(filterRow1, nil, dims.typeDropdown)
-    typeDropdown:SetPoint("LEFT", typeLabel, "RIGHT", 0, 0)
-    frame.typeDropdown = typeDropdown
-
-    local expLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    expLabel:SetPoint("LEFT", typeDropdown, "RIGHT", 5, 2)
-    expLabel:SetText("Expansion")
-
-    local expDropdown = ns.UI:CreateDropdown(filterRow1, nil, dims.expDropdown)
-    expDropdown:SetPoint("LEFT", expLabel, "RIGHT", 0, 0)
-    frame.expDropdown = expDropdown
-
-    -- Filter row 2: Search, Class, Slot
-    local filterRow2 = CreateFrame("Frame", nil, frame)
-    filterRow2:SetPoint("TOPLEFT", filterRow1, "BOTTOMLEFT", 0, -2)
-    filterRow2:SetPoint("TOPRIGHT", filterRow1, "BOTTOMRIGHT", 0, -2)
-    filterRow2:SetHeight(25)
-
-    local searchBox = ns.UI:CreateSearchBox(filterRow2, dims.searchWidth, 20)
+    local searchBox = ns.UI:CreateSearchBox(filterRow1, dims.searchWidth, 20)
     searchBox:SetPoint("LEFT", 8, 2)
     searchBox:HookScript("OnTextChanged", function(self)
         ns.browserSearchText = self:GetText():lower()
@@ -280,8 +258,30 @@ function ns:CreateItemBrowser()
     end)
     frame.searchBox = searchBox
 
+    local typeLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    typeLabel:SetPoint("LEFT", searchBox, "RIGHT", 8, 0)
+    typeLabel:SetText("Type:")
+
+    local typeDropdown = ns.UI:CreateDropdown(filterRow1, nil, dims.typeDropdown)
+    typeDropdown:SetPoint("LEFT", typeLabel, "RIGHT", 0, 0)
+    frame.typeDropdown = typeDropdown
+
+    local expLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    expLabel:SetPoint("LEFT", typeDropdown, "RIGHT", 4, 0)
+    expLabel:SetText("Exp:")
+
+    local expDropdown = ns.UI:CreateDropdown(filterRow1, nil, dims.expDropdown)
+    expDropdown:SetPoint("LEFT", expLabel, "RIGHT", 0, 0)
+    frame.expDropdown = expDropdown
+
+    -- Filter row 2: Class, Slot, Difficulty
+    local filterRow2 = CreateFrame("Frame", nil, frame)
+    filterRow2:SetPoint("TOPLEFT", filterRow1, "BOTTOMLEFT", 0, -2)
+    filterRow2:SetPoint("TOPRIGHT", filterRow1, "BOTTOMRIGHT", 0, -2)
+    filterRow2:SetHeight(25)
+
     local classLabel = filterRow2:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    classLabel:SetPoint("LEFT", searchBox, "RIGHT", 5, 0)
+    classLabel:SetPoint("LEFT", 8, 0)
     classLabel:SetText("Class:")
 
     local classDropdown = ns.UI:CreateDropdown(filterRow2, nil, dims.classDropdown)
@@ -289,30 +289,24 @@ function ns:CreateItemBrowser()
     frame.classDropdown = classDropdown
 
     local slotLabel = filterRow2:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    slotLabel:SetPoint("LEFT", classDropdown, "RIGHT", 5, 0)
+    slotLabel:SetPoint("LEFT", classDropdown, "RIGHT", 4, 0)
     slotLabel:SetText("Slot:")
 
     local slotDropdown = ns.UI:CreateDropdown(filterRow2, nil, dims.slotDropdown)
     slotDropdown:SetPoint("LEFT", slotLabel, "RIGHT", 0, 0)
     frame.slotDropdown = slotDropdown
 
-    -- Filter row 3: Difficulty dropdown
-    local filterRow3 = CreateFrame("Frame", nil, frame)
-    filterRow3:SetPoint("TOPLEFT", filterRow2, "BOTTOMLEFT", 0, -2)
-    filterRow3:SetPoint("TOPRIGHT", filterRow2, "BOTTOMRIGHT", 0, -2)
-    filterRow3:SetHeight(25)
+    local diffLabel = filterRow2:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    diffLabel:SetPoint("LEFT", slotDropdown, "RIGHT", 4, 0)
+    diffLabel:SetText("Diff:")
 
-    local diffLabel = filterRow3:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    diffLabel:SetPoint("LEFT", 8, 2)
-    diffLabel:SetText("Difficulty:")
-
-    local difficultyDropdown = ns.UI:CreateDropdown(filterRow3, nil, 130)
+    local difficultyDropdown = ns.UI:CreateDropdown(filterRow2, nil, dims.diffDropdown)
     difficultyDropdown:SetPoint("LEFT", diffLabel, "RIGHT", 0, 0)
     frame.difficultyDropdown = difficultyDropdown
 
     -- Content frame (holds both panels)
     local contentFrame = CreateFrame("Frame", nil, frame)
-    contentFrame:SetPoint("TOPLEFT", filterRow3, "BOTTOMLEFT", 0, -10)
+    contentFrame:SetPoint("TOPLEFT", filterRow2, "BOTTOMLEFT", 0, -10)
     contentFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 10)
     frame.contentFrame = contentFrame
 
