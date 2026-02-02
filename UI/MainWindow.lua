@@ -91,6 +91,9 @@ local function BuildDataProviderData(ns)
                     rowType = "item",
                     itemID = entry.itemID,
                     sourceText = entry.sourceText or "",
+                    upgradeTrack = entry.upgradeTrack,
+                    itemLink = entry.itemLink,
+                    isLegacy = (entry.upgradeTrack == nil),
                     isCollected = ns:IsItemCollected(entry.itemID),
                     isChecked = ns:IsItemChecked(entry.itemID),
                     isSelected = (selectedItemID == entry.itemID),
@@ -225,14 +228,10 @@ function ns:CreateMainWindow()
             local itemInfo = ns:GetCachedItemInfo(elementData.itemID)
             ns.UI:SetupItemRow(rowFrame, elementData, scrollWidth, itemInfo)
 
-            -- Item click handler - toggle collected/checked
+            -- Item click handler - toggle collected/checked or show context menu
             rowFrame:SetScript("OnClick", function(self, button)
                 if button == "RightButton" then
-                    if ns:IsItemCollected(elementData.itemID) then
-                        ns:UnmarkItemCollected(elementData.itemID)
-                    else
-                        ns:MarkItemCollected(elementData.itemID)
-                    end
+                    ns:ShowItemContextMenu(elementData)
                 else
                     ns:ToggleItemChecked(elementData.itemID)
                 end
@@ -527,4 +526,76 @@ function ns:ToggleItemBrowser()
             ns.MainWindow.browseBtn:SetText("Close")
         end
     end
+end
+
+-- Show context menu for item row
+function ns:ShowItemContextMenu(elementData)
+    -- Create menu frame if it doesn't exist
+    if not ns.ItemContextMenu then
+        ns.ItemContextMenu = CreateFrame("Frame", "LootWishlistItemContextMenu", UIParent, "UIDropDownMenuTemplate")
+    end
+
+    local itemID = elementData.itemID
+    local sourceText = elementData.sourceText
+    local currentTrack = elementData.upgradeTrack
+    local isCollected = elementData.isCollected
+
+    UIDropDownMenu_Initialize(ns.ItemContextMenu, function(self, level, menuList)
+        if level == 1 then
+            -- Mark Collected/Uncollected option
+            local collectedInfo = UIDropDownMenu_CreateInfo()
+            if isCollected then
+                collectedInfo.text = "Mark as Uncollected"
+            else
+                collectedInfo.text = "Mark as Collected"
+            end
+            collectedInfo.func = function()
+                if ns:IsItemCollected(itemID) then
+                    ns:UnmarkItemCollected(itemID)
+                else
+                    ns:MarkItemCollected(itemID)
+                end
+                ns:RefreshMainWindow()
+            end
+            collectedInfo.notCheckable = true
+            UIDropDownMenu_AddButton(collectedInfo, level)
+
+            -- Change Track submenu
+            local trackInfo = UIDropDownMenu_CreateInfo()
+            trackInfo.text = "Change Track"
+            trackInfo.hasArrow = true
+            trackInfo.menuList = "TRACK"
+            trackInfo.notCheckable = true
+            UIDropDownMenu_AddButton(trackInfo, level)
+
+            -- Remove option
+            local removeInfo = UIDropDownMenu_CreateInfo()
+            removeInfo.text = "Remove from Wishlist"
+            removeInfo.func = function()
+                ns:RemoveItemFromWishlist(itemID, sourceText)
+                selectedItemID = nil
+                ns:RefreshMainWindow()
+                ns:UpdateBrowserRowsForItem(itemID, sourceText)
+            end
+            removeInfo.notCheckable = true
+            removeInfo.colorCode = "|cffff6666"  -- Red text
+            UIDropDownMenu_AddButton(removeInfo, level)
+        elseif menuList == "TRACK" then
+            -- Track submenu items
+            local LABELS = ns.TRACK_LABELS
+
+            for _, track in ipairs(ns.TRACKS) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = LABELS[track]
+                info.checked = (currentTrack == track)
+                info.func = function()
+                    ns:UpdateItemTrack(itemID, sourceText, track)
+                    ns:RefreshMainWindow()
+                end
+                UIDropDownMenu_AddButton(info, level)
+            end
+        end
+    end, "MENU")
+
+    ToggleDropDownMenu(1, nil, ns.ItemContextMenu, "cursor", 0, 0)
 end

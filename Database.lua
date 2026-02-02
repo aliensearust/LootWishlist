@@ -8,7 +8,47 @@ local pairs, ipairs, type = pairs, ipairs, type
 local tinsert, wipe = table.insert, wipe
 
 -- Database version for migrations
-local DB_VERSION = 2
+local DB_VERSION = 4
+
+-- Track constants (upgrade tracks for TWW season gear)
+ns.TRACKS = {"explorer", "adventurer", "veteran", "champion", "hero", "myth"}
+
+ns.TRACK_LABELS = {
+    explorer = "Explorer",
+    adventurer = "Adventurer",
+    veteran = "Veteran",
+    champion = "Champion",
+    hero = "Hero",
+    myth = "Myth",
+}
+
+ns.TRACK_BADGE = {
+    explorer = {text = "[Exp]", color = {0.4, 0.8, 0.4}},    -- muted green
+    adventurer = {text = "[Adv]", color = {0.4, 0.6, 0.9}},  -- muted blue
+    veteran = {text = "[Vet]", color = {0.6, 0.4, 0.8}},     -- muted purple
+    champion = {text = "[Champ]", color = {0.9, 0.6, 0.3}},  -- muted orange
+    hero = {text = "[Hero]", color = {1.0, 0.82, 0.0}},      -- gold
+    myth = {text = "[Myth]", color = {1.0, 0.5, 0.0}},       -- bright orange
+}
+
+-- Raid difficulty options (EJ difficulty IDs)
+ns.RAID_DIFFICULTIES = {
+    {id = 17, name = "LFR", track = "veteran"},
+    {id = 14, name = "Normal", track = "champion"},
+    {id = 15, name = "Heroic", track = "hero"},
+    {id = 16, name = "Mythic", track = "myth"},
+}
+
+-- Dungeon difficulty options
+-- M+ options are "virtual" - they use EJ difficulty 23 for display but map to different tracks
+ns.DUNGEON_DIFFICULTIES = {
+    {id = 1, name = "Normal", track = "adventurer"},
+    {id = 2, name = "Heroic", track = "champion"},
+    {id = 23, name = "Mythic (M0)", track = "champion"},
+    {id = 23, name = "Mythic+ (1-5)", track = "champion"},
+    {id = 23, name = "Mythic+ (6-9)", track = "hero"},
+    {id = 23, name = "Mythic+ (10+)", track = "myth"},
+}
 
 -- Default database structure
 local DEFAULTS = {
@@ -26,6 +66,7 @@ local DEFAULTS = {
         alertSound = 8959, -- SOUNDKIT.RAID_WARNING
         browserSize = 1, -- 1 = Normal, 2 = Large
         collapsedGroups = {},  -- Persist collapse state
+        defaultTrack = "hero", -- Default track for adding items
         minimapIcon = {
             hide = false,
             minimapPos = 220,
@@ -94,6 +135,40 @@ function ns:MigrateDatabase()
             wishlist.items = newItems
         end
         db.version = 2
+    end
+
+    -- Version 2 -> 3 migration: Add difficulty field to existing items
+    if db.version < 3 then
+        for name, wishlist in pairs(db.wishlists) do
+            for _, entry in ipairs(wishlist.items) do
+                entry.difficulty = entry.difficulty or "any"
+            end
+        end
+        db.version = 3
+    end
+
+    -- Version 3 -> 4 migration: Convert difficulty to upgradeTrack
+    if db.version < 4 then
+        local legacyCount = 0
+        for name, wishlist in pairs(db.wishlists) do
+            for _, entry in ipairs(wishlist.items) do
+                entry.difficulty = nil      -- Remove old field
+                entry.upgradeTrack = nil    -- Set nil = no alerts until re-added
+                legacyCount = legacyCount + 1
+            end
+        end
+        db.version = 4
+
+        -- Store count for one-time notification
+        if legacyCount > 0 then
+            db.pendingLegacyNotification = legacyCount
+        end
+
+        -- Remove old settings
+        if db.settings then
+            db.settings.defaultRaidDifficulty = nil
+            db.settings.defaultDungeonDifficulty = nil
+        end
     end
 
     db.version = DB_VERSION

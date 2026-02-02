@@ -741,10 +741,23 @@ function ns.UI:InitializeScrollBoxRow(row)
     -- Name label (for items)
     row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     row.name:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
-    row.name:SetWidth(140)
+    row.name:SetWidth(110)
     row.name:SetJustifyH("LEFT")
     row.name:SetWordWrap(false)
     row.name:Hide()
+
+    -- Track badge (for items)
+    row.trackBadge = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.trackBadge:SetPoint("LEFT", row.name, "RIGHT", 4, 0)
+    row.trackBadge:SetJustifyH("LEFT")
+    row.trackBadge:Hide()
+
+    -- Legacy warning icon (for items without track data)
+    row.legacyWarning = row:CreateTexture(nil, "ARTWORK")
+    row.legacyWarning:SetSize(14, 14)
+    row.legacyWarning:SetPoint("LEFT", row.name, "RIGHT", 4, 0)
+    row.legacyWarning:SetTexture("Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew")
+    row.legacyWarning:Hide()
 
     -- Progress label (for headers, right side)
     row.progress = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -793,6 +806,8 @@ function ns.UI:ResetScrollBoxRow(row)
     row.icon:Hide()
     row.text:Hide()
     row.name:Hide()
+    row.trackBadge:Hide()
+    row.legacyWarning:Hide()
     row.progress:Hide()
     row.slot:Hide()
     row.source:Hide()
@@ -892,6 +907,14 @@ function ns.UI:SetupItemRow(row, data, width, itemInfo)
     end
     row.name:Show()
 
+    -- Legacy warning (for items without track data)
+    row.trackBadge:Hide()
+    if data.upgradeTrack then
+        row.legacyWarning:Hide()
+    else
+        row.legacyWarning:Show()
+    end
+
     -- Source text (just boss name)
     local sourceText = data.sourceText or ""
     local bossName = sourceText:match("^([^,]+)") or sourceText
@@ -925,11 +948,20 @@ function ns.UI:SetupItemRow(row, data, width, itemInfo)
             ns.UI:SetGradient(self.bg, self.hoverColors[1], self.hoverColors[2])
         end
         -- Show tooltip
-        if itemInfo and itemInfo.link then
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if data.itemLink then
+            GameTooltip:SetHyperlink(data.itemLink)
+        elseif itemInfo and itemInfo.link then
             GameTooltip:SetHyperlink(itemInfo.link)
-            GameTooltip:Show()
         end
+
+        -- Legacy warning only (no track info - native tooltip shows item level)
+        if not data.upgradeTrack and data.isLegacy then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Needs track data for alerts.", 1, 0.5, 0.5)
+            GameTooltip:AddLine("Remove and re-add from Browse panel.", 0.7, 0.7, 0.7)
+        end
+        GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function(self)
         if not self.selectedBg:IsShown() then
@@ -1076,12 +1108,16 @@ function ns.UI:InitLootRow(row, dims)
     row.icon:SetSize(lootIconSize, lootIconSize)
     row.icon:SetPoint("LEFT", 16, 0)
 
-    -- Name (after icon, before slot)
+    -- Name (after icon, before track badge)
     row.name = row:CreateFontString(nil, "OVERLAY", lootNameFont)
     row.name:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
-    row.name:SetPoint("RIGHT", row, "RIGHT", -130, 0)
     row.name:SetJustifyH("LEFT")
     row.name:SetWordWrap(false)
+
+    -- Track badge (after name, colored based on track)
+    row.trackBadge = row:CreateFontString(nil, "OVERLAY", lootSlotFont)
+    row.trackBadge:SetPoint("LEFT", row.name, "RIGHT", 4, 0)
+    row.trackBadge:SetJustifyH("LEFT")
 
     -- Slot label (before add button)
     row.slotLabel = row:CreateFontString(nil, "OVERLAY", lootSlotFont)

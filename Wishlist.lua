@@ -134,7 +134,7 @@ function ns:SetActiveWishlist(name)
 end
 
 -- Add item to active wishlist
-function ns:AddItemToWishlist(itemID, wishlistName, sourceText)
+function ns:AddItemToWishlist(itemID, wishlistName, sourceText, upgradeTrack, itemLink)
     wishlistName = wishlistName or self:GetActiveWishlistName()
     local wishlist = self.db.wishlists[wishlistName]
 
@@ -142,14 +142,19 @@ function ns:AddItemToWishlist(itemID, wishlistName, sourceText)
         return false, "Wishlist does not exist"
     end
 
-    -- Check if already in wishlist (same itemID AND sourceText)
+    -- Check if already in wishlist (same itemID, sourceText, AND upgradeTrack)
     for _, entry in ipairs(wishlist.items) do
-        if entry.itemID == itemID and entry.sourceText == (sourceText or "") then
+        if entry.itemID == itemID and entry.sourceText == (sourceText or "") and entry.upgradeTrack == upgradeTrack then
             return false, "Item already in wishlist"
         end
     end
 
-    table.insert(wishlist.items, {itemID = itemID, sourceText = sourceText or ""})
+    table.insert(wishlist.items, {
+        itemID = itemID,
+        sourceText = sourceText or "",
+        upgradeTrack = upgradeTrack,
+        itemLink = itemLink,
+    })
 
     -- Cache item info
     self:CacheItemInfo(itemID)
@@ -215,7 +220,7 @@ function ns:IsItemOnWishlist(itemID, wishlistName)
 end
 
 -- Check if item with specific source is on wishlist
-function ns:IsItemOnWishlistWithSource(itemID, sourceText, wishlistName)
+function ns:IsItemOnWishlistWithSource(itemID, sourceText, wishlistName, upgradeTrack)
     wishlistName = wishlistName or self:GetActiveWishlistName()
     local wishlist = self.db.wishlists[wishlistName]
 
@@ -225,7 +230,10 @@ function ns:IsItemOnWishlistWithSource(itemID, sourceText, wishlistName)
 
     for _, entry in ipairs(wishlist.items) do
         if entry.itemID == itemID and entry.sourceText == (sourceText or "") then
-            return true
+            -- If upgradeTrack specified, also check track matches
+            if upgradeTrack == nil or entry.upgradeTrack == upgradeTrack then
+                return true
+            end
         end
     end
 
@@ -296,7 +304,31 @@ function ns:DuplicateWishlistItem(itemID, wishlistName)
     for _, entry in ipairs(wishlist.items) do
         if entry.itemID == itemID then
             -- Create a copy of the entry
-            table.insert(wishlist.items, {itemID = entry.itemID, sourceText = entry.sourceText})
+            table.insert(wishlist.items, {
+                itemID = entry.itemID,
+                sourceText = entry.sourceText,
+                upgradeTrack = entry.upgradeTrack,
+                itemLink = entry.itemLink,
+            })
+            return true
+        end
+    end
+
+    return false, "Item not in wishlist"
+end
+
+-- Update upgrade track for a wishlist item
+function ns:UpdateItemTrack(itemID, sourceText, newTrack, wishlistName)
+    wishlistName = wishlistName or self:GetActiveWishlistName()
+    local wishlist = self.db.wishlists[wishlistName]
+
+    if not wishlist then
+        return false, "Wishlist does not exist"
+    end
+
+    for _, entry in ipairs(wishlist.items) do
+        if entry.itemID == itemID and entry.sourceText == (sourceText or "") then
+            entry.upgradeTrack = newTrack
             return true
         end
     end
@@ -373,3 +405,4 @@ function ns:GetSlotName(equipSlot)
     }
     return slotNames[equipSlot] or ""
 end
+

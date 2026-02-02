@@ -51,6 +51,13 @@ function ns:OnPlayerLogin()
 
     -- Print load message
     print("|cff00ccffLootWishlist|r loaded. Type |cff00ff00/lw|r for options.")
+
+    -- Check for pending legacy notification (v3 -> v4 migration)
+    if ns.db.pendingLegacyNotification and ns.db.pendingLegacyNotification > 0 then
+        local count = ns.db.pendingLegacyNotification
+        print("|cff00ccffLootWishlist|r: " .. count .. " items need track data for alerts. Re-add from Browse panel.")
+        ns.db.pendingLegacyNotification = nil
+    end
 end
 
 -- Initialize minimap icon using LibDBIcon
@@ -92,13 +99,8 @@ SlashCmdList["LOOTWISHLIST"] = function(msg)
         ns:PrintHelp()
     elseif cmd == "config" or cmd == "settings" then
         ns:OpenSettings()
-    elseif cmd == "add" and args ~= "" then
-        local itemID = tonumber(args)
-        if itemID then
-            ns:AddItemToWishlist(itemID)
-        else
-            print("|cff00ccffLootWishlist|r: Invalid item ID.")
-        end
+    elseif cmd == "add" then
+        print("|cff00ccffLootWishlist|r: Use Browse panel to add items with track data.")
     elseif cmd == "test" then
         ns:TestAlert()
     elseif cmd == "reset" then
@@ -113,7 +115,6 @@ function ns:PrintHelp()
     print("  |cff00ff00/lw|r - Toggle main window")
     print("  |cff00ff00/lw help|r - Show this help")
     print("  |cff00ff00/lw config|r - Open settings")
-    print("  |cff00ff00/lw add <itemID>|r - Add item by ID")
     print("  |cff00ff00/lw test|r - Test alert system")
     print("  |cff00ff00/lw reset|r - Reset all data")
 end

@@ -8,7 +8,7 @@ local pairs, ipairs, type, math = pairs, ipairs, type, math
 local wipe, tinsert = wipe, table.insert
 local CreateFrame, CreateFramePool = CreateFrame, CreateFramePool
 local C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode = C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode
-local EJ_SelectTier, EJ_SetLootFilter, EJ_ResetLootFilter = EJ_SelectTier, EJ_SetLootFilter, EJ_ResetLootFilter
+local EJ_SelectTier, EJ_SetLootFilter, EJ_ResetLootFilter, EJ_SetDifficulty = EJ_SelectTier, EJ_SetLootFilter, EJ_ResetLootFilter, EJ_SetDifficulty
 local EJ_GetInstanceByIndex, EJ_SelectInstance, EJ_GetEncounterInfoByIndex, EJ_SelectEncounter = EJ_GetInstanceByIndex, EJ_SelectInstance, EJ_GetEncounterInfoByIndex, EJ_SelectEncounter
 local UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText = UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText
 local UnitClass = UnitClass
@@ -28,6 +28,7 @@ local SIZE_PRESETS = {
         expDropdown = 130,
         classDropdown = 110,
         slotDropdown = 90,
+        diffDropdown = 90,
     },
     [2] = {  -- Large
         width = 750, height = 625, leftPanel = 175,
@@ -42,6 +43,7 @@ local SIZE_PRESETS = {
         expDropdown = 160,
         classDropdown = 135,
         slotDropdown = 110,
+        diffDropdown = 110,
     },
 }
 
@@ -149,6 +151,10 @@ local browserState = {
     classFilter = 0,
     slotFilter = "ALL",
     currentSeasonFilter = false,  -- true when "Current Season" is selected
+    -- Difficulty dropdown state
+    selectedDifficultyID = nil,     -- EJ API difficulty ID (1, 2, 14, 15, 16, 17, 23)
+    selectedDifficultyIndex = nil,  -- Index in difficulty table (to distinguish M+ levels)
+    selectedTrack = nil,            -- Derived track for current selection
 }
 
 local function GetBrowserState()
@@ -177,6 +183,7 @@ local function ResetLootRow(pool, row)
     row:ClearAllPoints()
     row.itemID = nil
     row.sourceText = nil
+    row.track = nil
     if row.checkmark then row.checkmark:Hide() end
     if row.name then row.name:SetTextColor(1, 1, 1) end
     if row.addBtn then row.addBtn:Show() end
@@ -288,9 +295,23 @@ function ns:CreateItemBrowser()
     slotDropdown:SetPoint("LEFT", slotLabel, "RIGHT", 0, 0)
     frame.slotDropdown = slotDropdown
 
+    -- Filter row 3: Difficulty dropdown
+    local filterRow3 = CreateFrame("Frame", nil, frame)
+    filterRow3:SetPoint("TOPLEFT", filterRow2, "BOTTOMLEFT", 0, -2)
+    filterRow3:SetPoint("TOPRIGHT", filterRow2, "BOTTOMRIGHT", 0, -2)
+    filterRow3:SetHeight(25)
+
+    local diffLabel = filterRow3:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    diffLabel:SetPoint("LEFT", 8, 2)
+    diffLabel:SetText("Difficulty:")
+
+    local difficultyDropdown = ns.UI:CreateDropdown(filterRow3, nil, 130)
+    difficultyDropdown:SetPoint("LEFT", diffLabel, "RIGHT", 0, 0)
+    frame.difficultyDropdown = difficultyDropdown
+
     -- Content frame (holds both panels)
     local contentFrame = CreateFrame("Frame", nil, frame)
-    contentFrame:SetPoint("TOPLEFT", filterRow2, "BOTTOMLEFT", 0, -10)
+    contentFrame:SetPoint("TOPLEFT", filterRow3, "BOTTOMLEFT", 0, -10)
     contentFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 10)
     frame.contentFrame = contentFrame
 
@@ -408,6 +429,7 @@ function ns:CreateItemBrowser()
     self:InitExpansionDropdown(expDropdown)
     self:InitClassDropdown(classDropdown)
     self:InitSlotDropdown(slotDropdown)
+    self:InitDifficultyDropdown(difficultyDropdown)
 
     -- Set default expansion and class if not already set (first time opening)
     local state = GetBrowserState()
@@ -418,6 +440,10 @@ function ns:CreateItemBrowser()
         -- Default class to player's class on first use
         local _, _, playerClassID = UnitClass("player")
         state.classFilter = playerClassID or 0
+    end
+    -- Set default difficulty based on instance type
+    if not state.selectedDifficultyIndex then
+        ns:SetDefaultDifficulty(state)
     end
 
     frame:Show()
@@ -449,6 +475,8 @@ function ns:InitTypeDropdown(dropdown)
                 if typeInfo.id == "raid" then
                     state.currentSeasonFilter = false
                 end
+                -- Reset difficulty selection for new instance type
+                ns:SetDefaultDifficulty(state)
                 ns:RefreshBrowser()
             end
             UIDropDownMenu_AddButton(info)
@@ -539,6 +567,58 @@ function ns:InitSlotDropdown(dropdown)
     UIDropDownMenu_SetText(dropdown, "All Slots")
 end
 
+-- Set default difficulty based on instance type
+function ns:SetDefaultDifficulty(state)
+    local isRaid = (state.instanceType == "raid")
+    local difficulties = isRaid and ns.RAID_DIFFICULTIES or ns.DUNGEON_DIFFICULTIES
+
+    if isRaid then
+        -- Default to Heroic for raids (index 3)
+        state.selectedDifficultyIndex = 3
+    else
+        -- Default to Mythic+ (6-9) for dungeons (index 5)
+        state.selectedDifficultyIndex = 5
+    end
+
+    local diff = difficulties[state.selectedDifficultyIndex]
+    state.selectedDifficultyID = diff.id
+    state.selectedTrack = diff.track
+end
+
+-- Get difficulty options for current instance type
+local function GetDifficultyOptions(instanceType)
+    if instanceType == "raid" then
+        return ns.RAID_DIFFICULTIES
+    else
+        return ns.DUNGEON_DIFFICULTIES
+    end
+end
+
+-- Initialize difficulty dropdown
+function ns:InitDifficultyDropdown(dropdown)
+    UIDropDownMenu_Initialize(dropdown, function(self, level)
+        local state = GetBrowserState()
+        local difficulties = GetDifficultyOptions(state.instanceType)
+
+        for idx, diff in ipairs(difficulties) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = diff.name
+            info.checked = (state.selectedDifficultyIndex == idx)
+            info.func = function()
+                local state = GetBrowserState()
+                state.selectedDifficultyIndex = idx
+                state.selectedDifficultyID = diff.id
+                state.selectedTrack = diff.track
+                UIDropDownMenu_SetText(dropdown, diff.name)
+                -- Set EJ difficulty for display
+                EJ_SetDifficulty(diff.id)
+                ns:RefreshBrowser()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+end
+
 -- Main refresh orchestrator
 function ns:RefreshBrowser()
     if not ns.ItemBrowser or not ns.ItemBrowser:IsShown() then
@@ -576,6 +656,24 @@ function ns:RefreshBrowser()
         if slotInfo.id == state.slotFilter then
             UIDropDownMenu_SetText(ns.ItemBrowser.slotDropdown, slotInfo.name)
             break
+        end
+    end
+
+    -- Update difficulty dropdown text and reinitialize if instance type changed
+    if ns.ItemBrowser.difficultyDropdown then
+        local isRaid = (state.instanceType == "raid")
+        local difficulties = GetDifficultyOptions(state.instanceType)
+
+        -- Validate current selection is valid for this instance type
+        if not state.selectedDifficultyIndex or state.selectedDifficultyIndex > #difficulties then
+            ns:SetDefaultDifficulty(state)
+        end
+
+        local diff = difficulties[state.selectedDifficultyIndex]
+        if diff then
+            UIDropDownMenu_SetText(ns.ItemBrowser.difficultyDropdown, diff.name)
+            -- Set EJ difficulty for item display
+            EJ_SetDifficulty(diff.id)
         end
     end
 
@@ -913,7 +1011,13 @@ function ns:DoRefreshRightPanel()
 
                         lootRow:SetWidth(scrollChild:GetWidth())
                         lootRow:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
+
+                        -- Set item name
                         lootRow.name:SetText(itemName)
+
+                        -- Store track info for later use
+                        lootRow.track = state.selectedTrack
+
                         lootRow.icon:SetTexture(lootInfo.icon or 134400)
                         lootRow.itemID = itemID
                         lootRow.slotLabel:SetText(itemSlot)
@@ -922,8 +1026,8 @@ function ns:DoRefreshRightPanel()
                         local sourceText = name .. ", " .. instanceName
                         lootRow.sourceText = sourceText
 
-                        -- Check if already on wishlist (with this specific source)
-                        local isOnWishlist = ns:IsItemOnWishlistWithSource(itemID, sourceText)
+                        -- Check if already on wishlist (with this specific source and track)
+                        local isOnWishlist = ns:IsItemOnWishlistWithSource(itemID, sourceText, nil, state.selectedTrack)
                         if isOnWishlist then
                             lootRow.checkmark:Show()
                             lootRow.name:SetTextColor(0.5, 0.5, 0.5)
@@ -936,23 +1040,20 @@ function ns:DoRefreshRightPanel()
 
                         -- Add item handler (used by both button and row click)
                         local function addItemHandler()
-                            if not ns:IsItemOnWishlistWithSource(itemID, sourceText) then
-                                local success = ns:AddItemToWishlist(itemID, nil, sourceText)
-                                if success then
-                                    ns:MarkRowAsAdded(lootRow, itemID)
-                                    ns:RefreshMainWindow()
-                                end
+                            local state = GetBrowserState()
+                            local track = state.selectedTrack or "hero"
+                            local success = ns:AddItemToWishlist(itemID, nil, sourceText, track, itemLink)
+                            if success then
+                                ns:MarkRowAsAdded(lootRow, itemID)
+                                ns:RefreshMainWindow()
                             end
                         end
 
                         lootRow.addBtn:SetScript("OnClick", addItemHandler)
 
-                        -- Make entire row clickable (only if not already on wishlist)
-                        if not isOnWishlist then
-                            lootRow:SetScript("OnClick", addItemHandler)
-                        end
+                        -- Make entire row clickable
+                        lootRow:SetScript("OnClick", addItemHandler)
 
-                        -- Tooltip
                         lootRow:SetScript("OnEnter", function(self)
                             if itemLink then
                                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
