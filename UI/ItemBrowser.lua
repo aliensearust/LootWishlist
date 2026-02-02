@@ -1074,6 +1074,7 @@ function ns:RefreshLeftPanel()
     local isRaid = (state.instanceType == "raid")
     local yOffset = 0
     local firstInstance = nil
+    local firstInstanceRow = nil
 
     -- Handle current season filter for dungeons
     if state.currentSeasonFilter and not isRaid then
@@ -1102,6 +1103,7 @@ function ns:RefreshLeftPanel()
 
                     if not firstInstance then
                         firstInstance = instanceID
+                        firstInstanceRow = row
                     end
 
                     ns.UI:SetInstanceRowSelected(row, state.selectedInstance == instanceID)
@@ -1141,6 +1143,7 @@ function ns:RefreshLeftPanel()
 
             if not firstInstance then
                 firstInstance = instanceID
+                firstInstanceRow = row
             end
 
             ns.UI:SetInstanceRowSelected(row, state.selectedInstance == instanceID)
@@ -1162,6 +1165,9 @@ function ns:RefreshLeftPanel()
     -- Auto-select first instance if none selected
     if not state.selectedInstance and firstInstance then
         state.selectedInstance = firstInstance
+        if firstInstanceRow then
+            ns.UI:SetInstanceRowSelected(firstInstanceRow, true)
+        end
         InvalidateCache()
         self:RefreshRightPanel()
     end
