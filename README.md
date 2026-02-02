@@ -4,11 +4,13 @@ A World of Warcraft addon that tracks gear wishlists and alerts you when desired
 
 ## Features
 
-- **Loot Wishlists** - Create named lists of gear you're hunting for (main spec BiS, offspec, etc.)
-- **Visual Alerts** - Wishlist items glow in the loot window
-- **Audio Alerts** - Sound notification when wishlist items drop
-- **Collected Tracking** - Automatically marks items as collected with progress display
-- **In-Game Item Browser** - Browse raid/dungeon loot filtered by expansion, instance, class, and slot
+- **Multiple Wishlists** - Create named lists (main spec BiS, offspec, etc.)
+- **Upgrade Track Filtering** - Filter by gear track (Explorer → Myth)
+- **Visual Alerts** - Wishlist items glow in loot window
+- **Audio Alerts** - Configurable sound notifications
+- **Collected Tracking** - Auto-marks collected items with progress display
+- **In-Game Item Browser** - Browse loot filtered by expansion, instance, difficulty, class, and slot
+- **Minimap Icon** - Quick access button with left-click toggle
 
 ## Installation
 
@@ -22,8 +24,10 @@ A World of Warcraft addon that tracks gear wishlists and alerts you when desired
 
 | Command | Description |
 |---------|-------------|
-| `/lw` | Open main window |
-| `/lw config` | Open settings |
+| `/lw` or `/lootwishlist` | Toggle main window |
+| `/lw config` or `/lw settings` | Open settings panel |
+| `/lw test` | Test alert system |
+| `/lw reset` | Reset all data (with confirmation) |
 | `/lw help` | Show all commands |
 
 ### Quick Start
@@ -36,15 +40,27 @@ A World of Warcraft addon that tracks gear wishlists and alerts you when desired
 ## Interface
 
 **Wishlist Manager** (left panel)
-- Select/create wishlists
-- View tracked items with collected status
+- Select/switch active wishlist via dropdown
+- Create, rename, delete wishlists
+- View items grouped by instance (collapsible)
 - See progress (e.g., "5/12 collected")
+- Right-click items for context menu (mark collected, change track, remove)
 
 **Item Browser** (right panel, toggle with "Browse")
-- Filter by expansion, instance type, class, slot
+- Filter by expansion, instance type (raid/dungeon), difficulty
+- Filter by class and armor slot
 - Search items by name
-- Browse instances and bosses
+- Current season filter for M+ dungeons
 - One-click add items to wishlist
+- Normal or Large size modes
+
+## Settings
+
+- Enable/disable chat alerts, sound alerts, glow effects
+- Choose alert sound (Raid Warning, Ready Check, etc.)
+- Hide minimap icon option
+- Browser size (Normal/Large)
+- Default upgrade track for browsing
 
 ## License
 
