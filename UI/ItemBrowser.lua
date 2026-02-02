@@ -11,6 +11,7 @@ local CreateFrame, CreateFramePool = CreateFrame, CreateFramePool
 local C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode = C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode
 local EJ_SelectTier, EJ_SetLootFilter, EJ_ResetLootFilter, EJ_SetDifficulty = EJ_SelectTier, EJ_SetLootFilter, EJ_ResetLootFilter, EJ_SetDifficulty
 local EJ_GetInstanceByIndex, EJ_SelectInstance, EJ_GetEncounterInfoByIndex, EJ_SelectEncounter = EJ_GetInstanceByIndex, EJ_SelectInstance, EJ_GetEncounterInfoByIndex, EJ_SelectEncounter
+local EJ_GetNumTiers, EJ_GetTierInfo = EJ_GetNumTiers, EJ_GetTierInfo
 local UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText = UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText
 local UnitClass = UnitClass
 local GameTooltip = GameTooltip
@@ -58,20 +59,23 @@ local function GetBrowserDimensions()
     return SIZE_PRESETS[sizeID] or SIZE_PRESETS[1]
 end
 
--- Expansion tier IDs (EJ tiers)
-local EXPANSION_TIERS = {
-    {id = 11, name = "The War Within"},
-    {id = 10, name = "Dragonflight"},
-    {id = 9, name = "Shadowlands"},
-    {id = 8, name = "Battle for Azeroth"},
-    {id = 7, name = "Legion"},
-    {id = 6, name = "Warlords of Draenor"},
-    {id = 5, name = "Mists of Pandaria"},
-    {id = 4, name = "Cataclysm"},
-    {id = 3, name = "Wrath of the Lich King"},
-    {id = 2, name = "The Burning Crusade"},
-    {id = 1, name = "Classic"},
-}
+-- Dynamically build expansion tiers from Encounter Journal API
+local EXPANSION_TIERS  -- Cached after first build
+
+local function GetExpansionTiers()
+    if EXPANSION_TIERS then return EXPANSION_TIERS end
+
+    EXPANSION_TIERS = {}
+    local numTiers = EJ_GetNumTiers()
+    -- Build newest first (reverse order)
+    for i = numTiers, 1, -1 do
+        local name = EJ_GetTierInfo(i)
+        if name then
+            table.insert(EXPANSION_TIERS, {id = i, name = name})
+        end
+    end
+    return EXPANSION_TIERS
+end
 
 -- Class data for dropdown
 local CLASS_DATA = {
@@ -831,7 +835,7 @@ function ns:CreateItemBrowser()
     -- Set defaults if not already set
     local state = ns.browserState
     if not state.expansion then
-        state.expansion = EXPANSION_TIERS[1].id
+        state.expansion = GetExpansionTiers()[1].id
     end
     if state.classFilter == 0 then
         local _, _, playerClassID = UnitClass("player")
@@ -904,7 +908,7 @@ function ns:InitExpansionDropdown(dropdown)
             UIDropDownMenu_AddButton(info)
         end
 
-        for _, exp in ipairs(EXPANSION_TIERS) do
+        for _, exp in ipairs(GetExpansionTiers()) do
             local info = UIDropDownMenu_CreateInfo()
             info.text = exp.name
             info.checked = (not state.currentSeasonFilter and state.expansion == exp.id)
@@ -1000,7 +1004,7 @@ function ns:RefreshBrowser()
     if state.currentSeasonFilter then
         UIDropDownMenu_SetText(ns.ItemBrowser.expDropdown, "Current Season")
     else
-        for _, exp in ipairs(EXPANSION_TIERS) do
+        for _, exp in ipairs(GetExpansionTiers()) do
             if exp.id == state.expansion then
                 UIDropDownMenu_SetText(ns.ItemBrowser.expDropdown, exp.name)
                 break
@@ -1038,7 +1042,7 @@ function ns:RefreshBrowser()
     -- Set EJ tier and loot filter
     if not state.currentSeasonFilter then
         if not state.expansion then
-            state.expansion = EXPANSION_TIERS[1].id
+            state.expansion = GetExpansionTiers()[1].id
         end
         EJ_SelectTier(state.expansion)
     end
