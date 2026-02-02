@@ -77,6 +77,7 @@ function ns:InitMinimapIcon()
         end,
         OnTooltipShow = function(tooltip)
             tooltip:AddLine("LootWishlist")
+            tooltip:AddLine("|cffffffffProfile:|r " .. ns:GetActiveWishlistName(), 0, 1, 0)
             tooltip:AddLine("|cffffffffLeft-click|r to toggle window", 0.7, 0.7, 0.7)
             tooltip:AddLine("|cffffffffRight-click|r to open options", 0.7, 0.7, 0.7)
         end,
