@@ -290,11 +290,14 @@ local function CacheInstanceData()
             lootIndex = lootIndex + 1
         end
 
-        tinsert(bosses, {
-            bossID = bossID,
-            name = name,
-            loot = lootList,
-        })
+        -- Only include boss if it has loot (respects class filter)
+        if #lootList > 0 then
+            tinsert(bosses, {
+                bossID = bossID,
+                name = name,
+                loot = lootList,
+            })
+        end
 
         bossIndex = bossIndex + 1
     end
