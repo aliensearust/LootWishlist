@@ -39,6 +39,10 @@ local lastChatLootCheck = {}
 local CHAT_LOOT_THROTTLE = 1.0  -- seconds
 local chatLootCleanupTicker = nil
 
+-- Event bucketing for loot window processing
+local lootBucket = nil
+local LOOT_BUCKET_DELAY = 0.1  -- seconds
+
 -- Parse bonus IDs from item link
 -- Format: item:itemID:enchant:gem1:gem2:gem3:gem4:suffixID:uniqueID:level:specID:modifiersMask:itemContext:numBonusIDs:bonusID1:bonusID2:...
 function ns:ParseBonusIDsFromLink(itemLink)
@@ -100,20 +104,33 @@ function ns:ShouldAlertForTrack(itemLink, wishlistEntry)
     return droppedTrack == wishlistEntry.upgradeTrack
 end
 
--- Event handler functions
+-- Event handler functions with bucketing
 function ns:OnLootReady(event, autoLoot)
-    self:CheckLootWindow()
+    -- Bucket loot processing to avoid processing same window multiple times
+    if lootBucket then return end
+    lootBucket = C_Timer.After(LOOT_BUCKET_DELAY, function()
+        lootBucket = nil
+        self:CheckLootWindow()
+    end)
 end
 
 function ns:OnLootOpened(event)
-    self:CheckLootWindow()
+    -- Bucket with OnLootReady
+    if lootBucket then return end
+    lootBucket = C_Timer.After(LOOT_BUCKET_DELAY, function()
+        lootBucket = nil
+        self:CheckLootWindow()
+    end)
 end
 
 function ns:OnLootSlotChanged(event, slot)
+    -- Single slot changes don't need bucketing
     self:CheckLootSlot(slot)
 end
 
 function ns:OnLootClosed(event)
+    -- Cancel any pending bucket
+    lootBucket = nil
     self:ClearLootGlows()
     wipe(pendingLootItems)
 end
@@ -400,10 +417,8 @@ function ns:OnItemLooted(itemID)
 
     print("|cff00ff00[LootWishlist]|r Collected: " .. itemName)
 
-    -- Update UI if open
-    if ns.MainWindow and ns.MainWindow:IsShown() then
-        ns:RefreshMainWindow()
-    end
+    -- Notify state change (UI will auto-refresh via subscription)
+    ns.State:Notify(ns.StateEvents.ITEM_COLLECTED, {itemID = itemID})
 end
 
 -- Test alert system

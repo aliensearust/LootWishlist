@@ -10,8 +10,13 @@ local C_Item, CopyTable = C_Item, CopyTable
 
 -- Item cache for async loading with LRU eviction
 ns.itemCache = {}
-local cacheOrder = {}  -- LRU tracking: array of itemIDs in access order (oldest first)
 local MAX_CACHE_SIZE = 500
+
+-- O(1) LRU tracking: doubly linked list + hash map
+local lruNodes = {}  -- itemID -> {prev, next, itemID}
+local lruHead = nil  -- Oldest (first to evict)
+local lruTail = nil  -- Most recently used
+local lruSize = 0
 
 -- Wishlist lookup index for O(1) item checks
 -- Structure: wishlistIndex[itemID] = {wishlistName1 = true, wishlistName2 = true, ...}
@@ -20,22 +25,80 @@ local wishlistIndex = {}
 -- Constants for validation
 local MAX_WISHLIST_NAME_LENGTH = 50
 
--- LRU cache helpers
+-- LRU cache helpers - O(1) operations
 local function TouchCache(itemID)
-    -- Move itemID to end of cacheOrder (most recently used)
-    for i, id in ipairs(cacheOrder) do
-        if id == itemID then
-            tremove(cacheOrder, i)
-            break
-        end
+    local node = lruNodes[itemID]
+    if not node then return end
+
+    -- Already at tail (most recent), nothing to do
+    if lruTail == node then return end
+
+    -- Unlink node from current position
+    if node.prev then
+        node.prev.next = node.next
+    else
+        -- Node is head
+        lruHead = node.next
     end
-    tinsert(cacheOrder, itemID)
+    if node.next then
+        node.next.prev = node.prev
+    end
+
+    -- Append to tail (most recently used)
+    node.prev = lruTail
+    node.next = nil
+    if lruTail then
+        lruTail.next = node
+    end
+    lruTail = node
+    if not lruHead then
+        lruHead = node
+    end
+end
+
+local function AddToLRU(itemID)
+    if lruNodes[itemID] then
+        TouchCache(itemID)
+        return
+    end
+
+    local node = {prev = lruTail, next = nil, itemID = itemID}
+    lruNodes[itemID] = node
+
+    if lruTail then
+        lruTail.next = node
+    end
+    lruTail = node
+    if not lruHead then
+        lruHead = node
+    end
+    lruSize = lruSize + 1
+end
+
+local function RemoveFromLRU(itemID)
+    local node = lruNodes[itemID]
+    if not node then return end
+
+    if node.prev then
+        node.prev.next = node.next
+    else
+        lruHead = node.next
+    end
+    if node.next then
+        node.next.prev = node.prev
+    else
+        lruTail = node.prev
+    end
+
+    lruNodes[itemID] = nil
+    lruSize = lruSize - 1
 end
 
 local function PruneCache()
     -- Remove oldest entries until under MAX_CACHE_SIZE
-    while #cacheOrder > MAX_CACHE_SIZE do
-        local oldestID = tremove(cacheOrder, 1)
+    while lruSize > MAX_CACHE_SIZE and lruHead do
+        local oldestID = lruHead.itemID
+        RemoveFromLRU(oldestID)
         ns.itemCache[oldestID] = nil
     end
 end
@@ -275,6 +338,14 @@ function ns:AddItemToWishlist(itemID, wishlistName, sourceText, upgradeTrack, it
     -- Cache item info
     self:CacheItemInfo(itemID)
 
+    -- Notify state change
+    ns.State:Notify(ns.StateEvents.ITEMS_CHANGED, {
+        action = "add",
+        wishlist = wishlistName,
+        itemID = itemID,
+        sourceText = sourceText,
+    })
+
     return true
 end
 
@@ -302,6 +373,14 @@ function ns:RemoveItemFromWishlist(itemID, sourceText, wishlistName)
             if not stillExists then
                 RemoveFromIndex(itemID, wishlistName)
             end
+
+            -- Notify state change
+            ns.State:Notify(ns.StateEvents.ITEMS_CHANGED, {
+                action = "remove",
+                wishlist = wishlistName,
+                itemID = itemID,
+                sourceText = sourceText,
+            })
 
             return true
         end
@@ -387,7 +466,7 @@ function ns:CacheItemInfo(itemID)
             classID = classID,
             subclassID = subclassID,
         }
-        TouchCache(itemID)
+        AddToLRU(itemID)
         PruneCache()
         return self.itemCache[itemID]
     end

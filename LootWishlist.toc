@@ -19,6 +19,7 @@ Database.lua
 TrackData.lua
 Data/Compressed.lua
 Data/Loader.lua
+State.lua
 Wishlist.lua
 Events.lua
 UI/Widgets.lua

@@ -20,6 +20,9 @@ jobs:
       - name: Generate TrackData.lua
         run: uv run scripts/generate_track_data.py --force
 
+      - name: Generate Wago static data
+        run: uv run scripts/generate-data.py
+
       - uses: BigWigsMods/packager@v2
         with:
           args: -r ./release

@@ -154,7 +154,14 @@ function ns.UI:CreateIconButton(parent, icon, size)
     return button
 end
 
--- Create a dropdown menu
+-- Create a modern dropdown menu (WowStyle1DropdownTemplate)
+function ns.UI:CreateModernDropdown(parent, width)
+    local dropdown = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
+    dropdown:SetWidth(width or 150)
+    return dropdown
+end
+
+-- Create a dropdown menu (legacy UIDropDownMenuTemplate - deprecated)
 function ns.UI:CreateDropdown(parent, label, width)
     local dropdown = CreateFrame("Frame", nil, parent, "UIDropDownMenuTemplate")
     UIDropDownMenu_SetWidth(dropdown, width or 150)
@@ -176,20 +183,6 @@ function ns.UI:CreateSearchBox(parent, width, height)
     searchBox:SetAutoFocus(false)
 
     return searchBox
-end
-
--- Create a scroll frame with content
-function ns.UI:CreateScrollFrame(parent, width, height)
-    local scrollFrame = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetSize(width or 200, height or 300)
-
-    local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetSize(width or 200, 1) -- Height will be adjusted
-    scrollFrame:SetScrollChild(scrollChild)
-
-    scrollFrame.content = scrollChild
-
-    return scrollFrame
 end
 
 -- Create item row for wishlist display
@@ -1095,18 +1088,18 @@ function ns.UI:InitLootRow(row, dims)
     row:SetSize(200, lootHeight)
     row.rowType = "loot"
 
-    -- Checkmark for items already on wishlist (left edge indicator)
+    -- Checkmark for items already on wishlist (left of icon)
     row.checkmark = row:CreateTexture(nil, "ARTWORK")
-    row.checkmark:SetSize(16, 16)
-    row.checkmark:SetPoint("LEFT", 4, 0)
+    row.checkmark:SetSize(14, 14)
+    row.checkmark:SetPoint("LEFT", 2, 0)
     row.checkmark:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Ready")
     row.checkmark:SetVertexColor(0.2, 1, 0.2)  -- Green
     row.checkmark:Hide()
 
-    -- Icon (after checkmark)
+    -- Icon (positioned after checkmark space)
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(lootIconSize, lootIconSize)
-    row.icon:SetPoint("LEFT", 16, 0)
+    row.icon:SetPoint("LEFT", 18, 0)
 
     -- Name (after icon, before track badge)
     row.name = row:CreateFontString(nil, "OVERLAY", lootNameFont)
@@ -1168,18 +1161,18 @@ function ns.UI:InitBrowserScrollBoxRow(row, dims)
     row.bossName:SetWordWrap(false)
     row.bossName:Hide()
 
-    -- Checkmark for items already on wishlist
+    -- Checkmark for items already on wishlist (left of icon)
     row.checkmark = row:CreateTexture(nil, "ARTWORK")
-    row.checkmark:SetSize(16, 16)
-    row.checkmark:SetPoint("LEFT", 4, 0)
+    row.checkmark:SetSize(14, 14)
+    row.checkmark:SetPoint("LEFT", 2, 0)
     row.checkmark:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Ready")
     row.checkmark:SetVertexColor(0.2, 1, 0.2)
     row.checkmark:Hide()
 
-    -- Icon (for loot items)
+    -- Icon (for loot items, positioned after checkmark space)
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(lootIconSize, lootIconSize)
-    row.icon:SetPoint("LEFT", 16, 0)
+    row.icon:SetPoint("LEFT", 18, 0)
     row.icon:Hide()
 
     -- Item name (for loot items)
@@ -1317,4 +1310,103 @@ function ns.UI:GetBrowserRowExtent(dataIndex, elementData, dims)
     else
         return dims and dims.lootRowHeight or self.BROWSER_LOOT_ROW_HEIGHT
     end
+end
+
+-------------------------------------------------------------------------------
+-- Instance List ScrollBox Row Helpers (for left panel DataProvider pattern)
+-------------------------------------------------------------------------------
+
+-- Instance row height constant
+ns.UI.INSTANCE_ROW_HEIGHT = 24
+
+-- Initialize an instance list ScrollBox row
+function ns.UI:InitInstanceScrollBoxRow(row, dims)
+    local height = dims and dims.instanceRowHeight or 24
+    local font = dims and dims.instanceFont or "GameFontNormalSmall"
+
+    row:EnableMouse(true)
+    row:RegisterForClicks("LeftButtonUp")
+
+    -- Background gradient
+    row.bg = row:CreateTexture(nil, "BACKGROUND")
+    row.bg:SetAllPoints()
+    row.bg:SetColorTexture(1, 1, 1, 1)
+
+    -- Selected highlight gradient
+    row.selectedBg = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+    row.selectedBg:SetAllPoints()
+    row.selectedBg:SetColorTexture(1, 1, 1, 1)
+    row.selectedBg:SetGradient("HORIZONTAL",
+        CreateColor(unpack(COLORS.selectedLeft)),
+        CreateColor(unpack(COLORS.selectedRight)))
+    row.selectedBg:Hide()
+
+    -- Instance name
+    row.name = row:CreateFontString(nil, "OVERLAY", font)
+    row.name:SetPoint("LEFT", 8, 0)
+    row.name:SetPoint("RIGHT", -4, 0)
+    row.name:SetJustifyH("LEFT")
+    row.name:SetWordWrap(false)
+
+    -- Store dims for later use
+    row.dims = dims
+
+    row.initialized = true
+end
+
+-- Reset an instance list ScrollBox row
+function ns.UI:ResetInstanceScrollBoxRow(row)
+    row:Hide()
+    row.selectedBg:Hide()
+    row.instanceID = nil
+    row.instanceName = nil
+    row:SetScript("OnClick", nil)
+    row:SetScript("OnEnter", nil)
+    row:SetScript("OnLeave", nil)
+end
+
+-- Configure an instance row with data
+function ns.UI:SetupInstanceRow(row, data, width, isSelected)
+    local dims = row.dims
+    local height = dims and dims.instanceRowHeight or 24
+
+    row:SetSize(width, height)
+    row.instanceID = data.instanceID
+    row.instanceName = data.name
+
+    -- Set background gradient
+    self:SetGradient(row.bg, COLORS.rowLeft, COLORS.rowRight)
+
+    -- Store colors for hover
+    row.normalColors = {COLORS.rowLeft, COLORS.rowRight}
+    row.hoverColors = {COLORS.rowHoverLeft, COLORS.rowHoverRight}
+
+    -- Show name
+    row.name:SetText(data.name or "Unknown")
+
+    -- Selection state
+    if isSelected then
+        row.selectedBg:Show()
+        row.name:SetTextColor(1, 1, 1)
+    else
+        row.selectedBg:Hide()
+        row.name:SetTextColor(0.9, 0.9, 0.9)
+    end
+
+    -- Hover effects
+    row:SetScript("OnEnter", function(self)
+        if not self.selectedBg:IsShown() then
+            ns.UI:SetGradient(self.bg, self.hoverColors[1], self.hoverColors[2])
+        end
+    end)
+    row:SetScript("OnLeave", function(self)
+        if not self.selectedBg:IsShown() then
+            ns.UI:SetGradient(self.bg, self.normalColors[1], self.normalColors[2])
+        end
+    end)
+end
+
+-- Get instance row extent (uniform height)
+function ns.UI:GetInstanceRowExtent(dataIndex, elementData, dims)
+    return dims and dims.instanceRowHeight or self.INSTANCE_ROW_HEIGHT
 end

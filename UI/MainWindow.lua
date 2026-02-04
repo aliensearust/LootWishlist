@@ -9,12 +9,10 @@ local tinsert = table.insert
 local math = math
 local string = string
 local CreateFrame, StaticPopup_Show = CreateFrame, StaticPopup_Show
-local UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton = UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton
-local UIDropDownMenu_SetText = UIDropDownMenu_SetText
-local ToggleDropDownMenu = ToggleDropDownMenu
 local CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil = CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil
 local EventRegistry = EventRegistry
 local GameTooltip = GameTooltip
+local MenuUtil = MenuUtil
 
 local WINDOW_WIDTH = 450
 local WINDOW_HEIGHT = 500
@@ -155,16 +153,16 @@ function ns:CreateMainWindow()
     profileLabel:SetPoint("LEFT", 0, 0)
     profileLabel:SetText("Wishlist:")
 
-    -- Profile dropdown
-    local dropdown = ns.UI:CreateDropdown(profileRow, nil, 120)
-    dropdown:SetPoint("LEFT", profileLabel, "RIGHT", -8, 2)
+    -- Profile dropdown (modern style)
+    local dropdown = ns.UI:CreateModernDropdown(profileRow, 140)
+    dropdown:SetPoint("LEFT", profileLabel, "RIGHT", 4, 0)
     frame.wishlistDropdown = dropdown
 
     self:InitWishlistDropdown(dropdown)
 
     -- New Wishlist button
     local newProfileBtn = ns.UI:CreateButton(profileRow, "New Wishlist", 90, 22)
-    newProfileBtn:SetPoint("LEFT", dropdown, "RIGHT", -2, 2)
+    newProfileBtn:SetPoint("LEFT", dropdown, "RIGHT", 8, 0)
     newProfileBtn:SetScript("OnClick", function()
         ns:ShowNewWishlistDialog()
     end)
@@ -315,6 +313,19 @@ function ns:CreateMainWindow()
         frame
     )
 
+    -- Subscribe to state changes for auto-refresh
+    frame.stateHandles = {}
+    frame.stateHandles.itemsChanged = ns.State:Subscribe(ns.StateEvents.ITEMS_CHANGED, function(data)
+        if frame:IsShown() then
+            ns:RefreshMainWindow()
+        end
+    end)
+    frame.stateHandles.itemCollected = ns.State:Subscribe(ns.StateEvents.ITEM_COLLECTED, function(data)
+        if frame:IsShown() then
+            ns:RefreshMainWindow()
+        end
+    end)
+
     -- Show and refresh
     frame:Show()
     self:RefreshMainWindow()
@@ -322,30 +333,28 @@ function ns:CreateMainWindow()
     return frame
 end
 
--- Initialize wishlist dropdown
+-- Initialize wishlist dropdown (modern style)
 function ns:InitWishlistDropdown(dropdown)
-    UIDropDownMenu_Initialize(dropdown, function(self, level)
+    dropdown:SetupMenu(function(dropdown, rootDescription)
         local names = ns:GetWishlistNames()
 
         for _, name in ipairs(names) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = name
-            info.checked = (name == ns:GetActiveWishlistName())
-            info.func = function()
-                ns:SetActiveWishlist(name)
-                UIDropDownMenu_SetText(dropdown, name)
-                selectedItemID = nil
-                ns:RefreshMainWindow()
-                -- Refresh browser to show new wishlist's browser state
-                if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
-                    ns:RefreshBrowser()
+            rootDescription:CreateRadio(name,
+                function() return name == ns:GetActiveWishlistName() end,
+                function()
+                    ns:SetActiveWishlist(name)
+                    selectedItemID = nil
+                    ns:RefreshMainWindow()
+                    -- Refresh browser to show new wishlist's browser state
+                    if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
+                        ns:RefreshBrowser()
+                    end
                 end
-            end
-            UIDropDownMenu_AddButton(info)
+            )
         end
     end)
 
-    UIDropDownMenu_SetText(dropdown, ns:GetActiveWishlistName())
+    dropdown:SetDefaultText("Default")
 end
 
 -- Refresh main window
@@ -357,8 +366,10 @@ function ns:RefreshMainWindow()
     local frame = ns.MainWindow
     local activeName = self:GetActiveWishlistName()
 
-    -- Update dropdown text
-    UIDropDownMenu_SetText(frame.wishlistDropdown, activeName)
+    -- Update dropdown text (OverrideText forces display text)
+    if frame.wishlistDropdown then
+        frame.wishlistDropdown:OverrideText(activeName)
+    end
 
     -- Update rename/delete button states (disable for "Default" wishlist)
     local isDefault = (activeName == "Default")
@@ -551,77 +562,58 @@ function ns:CleanupMainWindow()
             EventRegistry:UnregisterFrameEventAndCallback(ns.MainWindow.itemInfoHandle)
             ns.MainWindow.itemInfoHandle = nil
         end
+
+        -- Unsubscribe from state events
+        if ns.MainWindow.stateHandles then
+            for event, handle in pairs(ns.MainWindow.stateHandles) do
+                ns.State:Unsubscribe(ns.StateEvents[event:upper()] or event, handle)
+            end
+            ns.MainWindow.stateHandles = nil
+        end
     end
 end
 
--- Show context menu for item row
+-- Show context menu for item row (modern MenuUtil pattern)
 function ns:ShowItemContextMenu(elementData)
-    -- Create menu frame if it doesn't exist
-    if not ns.ItemContextMenu then
-        ns.ItemContextMenu = CreateFrame("Frame", "LootWishlistItemContextMenu", UIParent, "UIDropDownMenuTemplate")
-    end
-
     local itemID = elementData.itemID
     local sourceText = elementData.sourceText
     local currentTrack = elementData.upgradeTrack
     local isCollected = elementData.isCollected
 
-    UIDropDownMenu_Initialize(ns.ItemContextMenu, function(self, level, menuList)
-        if level == 1 then
-            -- Mark Collected/Uncollected option
-            local collectedInfo = UIDropDownMenu_CreateInfo()
-            if isCollected then
-                collectedInfo.text = "Mark as Uncollected"
+    MenuUtil.CreateContextMenu(UIParent, function(ownerRegion, rootDescription)
+        -- Mark Collected/Uncollected option
+        local collectedText = isCollected and "Mark as Uncollected" or "Mark as Collected"
+        rootDescription:CreateButton(collectedText, function()
+            if ns:IsItemCollected(itemID) then
+                ns:UnmarkItemCollected(itemID)
             else
-                collectedInfo.text = "Mark as Collected"
+                ns:MarkItemCollected(itemID)
             end
-            collectedInfo.func = function()
-                if ns:IsItemCollected(itemID) then
-                    ns:UnmarkItemCollected(itemID)
-                else
-                    ns:MarkItemCollected(itemID)
-                end
-                ns:RefreshMainWindow()
-            end
-            collectedInfo.notCheckable = true
-            UIDropDownMenu_AddButton(collectedInfo, level)
+            ns:RefreshMainWindow()
+        end)
 
-            -- Change Track submenu
-            local trackInfo = UIDropDownMenu_CreateInfo()
-            trackInfo.text = "Change Track"
-            trackInfo.hasArrow = true
-            trackInfo.menuList = "TRACK"
-            trackInfo.notCheckable = true
-            UIDropDownMenu_AddButton(trackInfo, level)
-
-            -- Remove option
-            local removeInfo = UIDropDownMenu_CreateInfo()
-            removeInfo.text = "Remove from Wishlist"
-            removeInfo.func = function()
-                ns:RemoveItemFromWishlist(itemID, sourceText)
-                selectedItemID = nil
-                ns:RefreshMainWindow()
-                ns:UpdateBrowserRowsForItem(itemID, sourceText)
-            end
-            removeInfo.notCheckable = true
-            removeInfo.colorCode = "|cffff6666"  -- Red text
-            UIDropDownMenu_AddButton(removeInfo, level)
-        elseif menuList == "TRACK" then
-            -- Track submenu items
-            local LABELS = ns.TRACK_LABELS
-
-            for _, track in ipairs(ns.TRACKS) do
-                local info = UIDropDownMenu_CreateInfo()
-                info.text = LABELS[track]
-                info.checked = (currentTrack == track)
-                info.func = function()
+        -- Change Track submenu
+        local trackSubmenu = rootDescription:CreateButton("Change Track")
+        local LABELS = ns.TRACK_LABELS
+        for _, track in ipairs(ns.TRACKS) do
+            trackSubmenu:CreateRadio(LABELS[track],
+                function() return currentTrack == track end,
+                function()
                     ns:UpdateItemTrack(itemID, sourceText, track)
                     ns:RefreshMainWindow()
                 end
-                UIDropDownMenu_AddButton(info, level)
-            end
+            )
         end
-    end, "MENU")
 
-    ToggleDropDownMenu(1, nil, ns.ItemContextMenu, "cursor", 0, 0)
+        -- Divider
+        rootDescription:CreateDivider()
+
+        -- Remove option
+        local removeBtn = rootDescription:CreateButton("|cffff6666Remove from Wishlist|r", function()
+            ns:RemoveItemFromWishlist(itemID, sourceText)
+            selectedItemID = nil
+            ns:RefreshMainWindow()
+            ns:UpdateBrowserRowsForItem(itemID, sourceText)
+        end)
+    end)
 end

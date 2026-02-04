@@ -7,9 +7,8 @@ local addonName, ns = ...
 -- Cache global functions
 local pairs, ipairs, type, math = pairs, ipairs, type, math
 local wipe, tinsert = wipe, table.insert
-local CreateFrame, CreateFramePool = CreateFrame, CreateFramePool
+local CreateFrame = CreateFrame
 local C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode = C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode
-local UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText = UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText
 local UnitClass = UnitClass
 local GameTooltip = GameTooltip
 local CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil = CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil
@@ -249,6 +248,9 @@ local function CacheInstanceData(onComplete)
     local bosses = {}
     local searchIndex = {}
 
+    -- Track items needing async load
+    local pendingItems = {}
+
     for _, encounter in ipairs(encounters) do
         -- Select encounter in EJ API to get its loot
         EJ_SelectEncounter(encounter.id)
@@ -277,6 +279,15 @@ local function CacheInstanceData(onComplete)
                     BuildSearchIndexEntry(searchIndex, itemKey, info.name)
                 end
                 BuildSearchIndexEntry(searchIndex, itemKey, encounter.name)
+
+                -- Track items needing async load (missing name or icon)
+                if not info.name or info.name == "" or not info.icon then
+                    tinsert(pendingItems, {
+                        itemID = info.itemID,
+                        entry = lootEntry,
+                        bossID = encounter.id,
+                    })
+                end
             end
         end
 
@@ -307,9 +318,54 @@ local function CacheInstanceData(onComplete)
     cache.instanceName = instanceName
     cache.bosses = bosses
     cache.searchIndex = searchIndex
-    cache.loadingState = "ready"
 
-    if onComplete then onComplete(true) end
+    -- Trigger async loads for items with missing data
+    if #pendingItems > 0 then
+        -- Don't mark as ready yet - wait for async loads
+        cache.loadingState = "loading"
+
+        local loadedCount = 0
+        local totalPending = #pendingItems
+
+        for _, pending in ipairs(pendingItems) do
+            local item = Item:CreateFromItemID(pending.itemID)
+            item:ContinueOnItemLoad(function()
+                -- Update cached entry with loaded data
+                local loadedName = item:GetItemName()
+                local loadedIcon = item:GetItemIcon()
+
+                if loadedName and loadedName ~= "" then
+                    pending.entry.name = loadedName
+                    -- Update search index for newly loaded name
+                    local itemKey = pending.itemID .. "_" .. pending.bossID
+                    BuildSearchIndexEntry(searchIndex, itemKey, loadedName)
+                end
+                if loadedIcon then
+                    pending.entry.icon = loadedIcon
+                end
+
+                loadedCount = loadedCount + 1
+
+                -- All items loaded - NOW mark ready and complete
+                if loadedCount >= totalPending then
+                    cache.loadingState = "ready"
+                    if onComplete then onComplete(true) end
+                end
+            end)
+        end
+
+        -- Fallback timeout - complete anyway after 2s
+        C_Timer.After(2.0, function()
+            if cache.loadingState == "loading" then
+                cache.loadingState = "ready"
+                if onComplete then onComplete(true) end
+            end
+        end)
+    else
+        -- No pending items, complete immediately
+        cache.loadingState = "ready"
+        if onComplete then onComplete(true) end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -499,17 +555,8 @@ function ns.BrowserFilter:BuildRightPanelData(filteredData)
 end
 
 -------------------------------------------------------------------------------
--- Frame Pools (left panel only - right panel uses ScrollBox)
+-- Frame Pools (legacy - kept for reference, no longer used)
 -------------------------------------------------------------------------------
-
-local instanceRowPool
-
-local function ResetInstanceRow(pool, row)
-    row:Hide()
-    row:ClearAllPoints()
-    row.instanceID = nil
-    row:SetScript("OnClick", nil)
-end
 
 -------------------------------------------------------------------------------
 -- Helpers
@@ -670,14 +717,60 @@ function ns:CreateItemBrowser()
         end
     end)
 
-    -- Filter row 1: Search, Type, Expansion
+    -- Filter row 1: Tier (Expansion), Type, Difficulty
     local filterRow1 = CreateFrame("Frame", nil, frame)
     filterRow1:SetPoint("TOPLEFT", titleBar, "BOTTOMLEFT", 10, -10)
     filterRow1:SetPoint("TOPRIGHT", titleBar, "BOTTOMRIGHT", -10, -10)
     filterRow1:SetHeight(25)
 
-    local searchBox = ns.UI:CreateSearchBox(filterRow1, dims.searchWidth, 20)
-    searchBox:SetPoint("LEFT", 8, 2)
+    local expLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    expLabel:SetPoint("LEFT", 8, 0)
+    expLabel:SetText("Tier:")
+
+    local expDropdown = ns.UI:CreateModernDropdown(filterRow1, dims.expDropdown)
+    expDropdown:SetPoint("LEFT", expLabel, "RIGHT", 4, 0)
+    frame.expDropdown = expDropdown
+
+    local typeLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    typeLabel:SetPoint("LEFT", expDropdown, "RIGHT", 8, 0)
+    typeLabel:SetText("Type:")
+
+    local typeDropdown = ns.UI:CreateModernDropdown(filterRow1, dims.typeDropdown)
+    typeDropdown:SetPoint("LEFT", typeLabel, "RIGHT", 4, 0)
+    frame.typeDropdown = typeDropdown
+
+    local diffLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    diffLabel:SetPoint("LEFT", typeDropdown, "RIGHT", 8, 0)
+    diffLabel:SetText("Diff:")
+
+    local difficultyDropdown = ns.UI:CreateModernDropdown(filterRow1, dims.diffDropdown)
+    difficultyDropdown:SetPoint("LEFT", diffLabel, "RIGHT", 4, 0)
+    frame.difficultyDropdown = difficultyDropdown
+
+    -- Filter row 2: Class, Slot, Search
+    local filterRow2 = CreateFrame("Frame", nil, frame)
+    filterRow2:SetPoint("TOPLEFT", filterRow1, "BOTTOMLEFT", 0, -2)
+    filterRow2:SetPoint("TOPRIGHT", filterRow1, "BOTTOMRIGHT", 0, -2)
+    filterRow2:SetHeight(25)
+
+    local classLabel = filterRow2:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    classLabel:SetPoint("LEFT", 8, 0)
+    classLabel:SetText("Class:")
+
+    local classDropdown = ns.UI:CreateModernDropdown(filterRow2, dims.classDropdown)
+    classDropdown:SetPoint("LEFT", classLabel, "RIGHT", 4, 0)
+    frame.classDropdown = classDropdown
+
+    local slotLabel = filterRow2:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    slotLabel:SetPoint("LEFT", classDropdown, "RIGHT", 8, 0)
+    slotLabel:SetText("Slot:")
+
+    local slotDropdown = ns.UI:CreateModernDropdown(filterRow2, dims.slotDropdown)
+    slotDropdown:SetPoint("LEFT", slotLabel, "RIGHT", 4, 0)
+    frame.slotDropdown = slotDropdown
+
+    local searchBox = ns.UI:CreateSearchBox(filterRow2, dims.searchWidth, 20)
+    searchBox:SetPoint("LEFT", slotDropdown, "RIGHT", 8, 2)
     local searchTimer = nil
     searchBox:HookScript("OnTextChanged", function(self)
         if searchTimer then searchTimer:Cancel() end
@@ -690,59 +783,13 @@ function ns:CreateItemBrowser()
     end)
     frame.searchBox = searchBox
 
-    local typeLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    typeLabel:SetPoint("LEFT", searchBox, "RIGHT", 8, 0)
-    typeLabel:SetText("Type:")
-
-    local typeDropdown = ns.UI:CreateDropdown(filterRow1, nil, dims.typeDropdown)
-    typeDropdown:SetPoint("LEFT", typeLabel, "RIGHT", 0, 0)
-    frame.typeDropdown = typeDropdown
-
-    local expLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    expLabel:SetPoint("LEFT", typeDropdown, "RIGHT", 4, 0)
-    expLabel:SetText("Exp:")
-
-    local expDropdown = ns.UI:CreateDropdown(filterRow1, nil, dims.expDropdown)
-    expDropdown:SetPoint("LEFT", expLabel, "RIGHT", 0, 0)
-    frame.expDropdown = expDropdown
-
-    -- Filter row 2: Class, Slot, Difficulty
-    local filterRow2 = CreateFrame("Frame", nil, frame)
-    filterRow2:SetPoint("TOPLEFT", filterRow1, "BOTTOMLEFT", 0, -2)
-    filterRow2:SetPoint("TOPRIGHT", filterRow1, "BOTTOMRIGHT", 0, -2)
-    filterRow2:SetHeight(25)
-
-    local classLabel = filterRow2:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    classLabel:SetPoint("LEFT", 8, 0)
-    classLabel:SetText("Class:")
-
-    local classDropdown = ns.UI:CreateDropdown(filterRow2, nil, dims.classDropdown)
-    classDropdown:SetPoint("LEFT", classLabel, "RIGHT", 0, 0)
-    frame.classDropdown = classDropdown
-
-    local slotLabel = filterRow2:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    slotLabel:SetPoint("LEFT", classDropdown, "RIGHT", 4, 0)
-    slotLabel:SetText("Slot:")
-
-    local slotDropdown = ns.UI:CreateDropdown(filterRow2, nil, dims.slotDropdown)
-    slotDropdown:SetPoint("LEFT", slotLabel, "RIGHT", 0, 0)
-    frame.slotDropdown = slotDropdown
-
-    local diffLabel = filterRow2:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    diffLabel:SetPoint("LEFT", slotDropdown, "RIGHT", 4, 0)
-    diffLabel:SetText("Diff:")
-
-    local difficultyDropdown = ns.UI:CreateDropdown(filterRow2, nil, dims.diffDropdown)
-    difficultyDropdown:SetPoint("LEFT", diffLabel, "RIGHT", 0, 0)
-    frame.difficultyDropdown = difficultyDropdown
-
     -- Content frame (holds both panels)
     local contentFrame = CreateFrame("Frame", nil, frame)
     contentFrame:SetPoint("TOPLEFT", filterRow2, "BOTTOMLEFT", 0, -10)
     contentFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 10)
     frame.contentFrame = contentFrame
 
-    -- Left panel (instance list)
+    -- Left panel (instance list) - using WowScrollBoxList pattern
     local leftPanel = CreateFrame("Frame", nil, contentFrame, "BackdropTemplate")
     leftPanel:SetPoint("TOPLEFT", 0, 0)
     leftPanel:SetPoint("BOTTOMLEFT", 0, 0)
@@ -757,14 +804,53 @@ function ns:CreateItemBrowser()
     leftPanel:SetBackdropBorderColor(0.3, 0.3, 0.3)
     frame.leftPanel = leftPanel
 
-    local leftScroll = CreateFrame("ScrollFrame", nil, leftPanel, "UIPanelScrollFrameTemplate")
-    leftScroll:SetPoint("TOPLEFT", 2, -2)
-    leftScroll:SetPoint("BOTTOMRIGHT", -20, 2)
+    -- Create ScrollBox for left panel (virtual scrolling)
+    local leftScrollBox = CreateFrame("Frame", nil, leftPanel, "WowScrollBoxList")
+    leftScrollBox:SetPoint("TOPLEFT", 2, -2)
+    leftScrollBox:SetPoint("BOTTOMRIGHT", -20, 2)
 
-    local leftScrollChild = CreateFrame("Frame", nil, leftScroll)
-    leftScrollChild:SetSize(LEFT_PANEL_WIDTH - 24, 1)
-    leftScroll:SetScrollChild(leftScrollChild)
-    frame.leftScrollChild = leftScrollChild
+    local leftScrollBar = CreateFrame("EventFrame", nil, leftPanel, "MinimalScrollBar")
+    leftScrollBar:SetPoint("TOPLEFT", leftScrollBox, "TOPRIGHT", 2, 0)
+    leftScrollBar:SetPoint("BOTTOMLEFT", leftScrollBox, "BOTTOMRIGHT", 2, 0)
+
+    -- Create view with fixed row height
+    local leftView = CreateScrollBoxListLinearView()
+    leftView:SetElementExtent(dims.instanceRowHeight)
+
+    -- Element initializer for instance rows
+    leftView:SetElementInitializer("Button", function(rowFrame, elementData)
+        -- First-time setup
+        if not rowFrame.initialized then
+            ns.UI:InitInstanceScrollBoxRow(rowFrame, dims)
+        end
+
+        -- Reset row state
+        ns.UI:ResetInstanceScrollBoxRow(rowFrame)
+
+        local scrollWidth = leftScrollBox:GetWidth()
+        local state = ns.browserState
+        local isSelected = (state.selectedInstance == elementData.instanceID)
+
+        ns.UI:SetupInstanceRow(rowFrame, elementData, scrollWidth, isSelected)
+
+        -- Click handler
+        rowFrame:SetScript("OnClick", function()
+            state.selectedInstance = elementData.instanceID
+            state.selectedDifficultyIndex = nil  -- Reset to pick new defaults
+            state.expandedBosses = {}
+            InvalidateCache()
+            ns:RefreshBrowser()
+        end)
+
+        rowFrame:Show()
+    end)
+
+    -- Initialize ScrollBox with ScrollBar
+    ScrollUtil.InitScrollBoxListWithScrollBar(leftScrollBox, leftScrollBar, leftView)
+
+    frame.leftScrollBox = leftScrollBox
+    frame.leftScrollBar = leftScrollBar
+    frame.leftView = leftView
 
     -- Right panel (boss/items) - using WowScrollBoxList pattern
     local rightPanel = CreateFrame("Frame", nil, contentFrame, "BackdropTemplate")
@@ -870,11 +956,6 @@ function ns:CreateItemBrowser()
     frame.rightScrollBar = rightScrollBar
     frame.rightView = rightView
 
-    -- Initialize frame pool for left panel only (right panel uses ScrollBox)
-    if not instanceRowPool then
-        instanceRowPool = CreateFramePool("Button", leftScrollChild, nil, ResetInstanceRow)
-    end
-
     -- Loading indicator with spinner
     local loadingFrame = CreateFrame("Frame", nil, rightPanel)
     loadingFrame:SetSize(100, 50)
@@ -948,6 +1029,14 @@ function ns:CreateItemBrowser()
     self:InitSlotDropdown(slotDropdown)
     self:InitDifficultyDropdown(difficultyDropdown)
 
+    -- Subscribe to state changes for auto-refresh (update checkmarks when items change)
+    frame.stateHandles = {}
+    frame.stateHandles.itemsChanged = ns.State:Subscribe(ns.StateEvents.ITEMS_CHANGED, function(data)
+        if frame:IsShown() then
+            ns:RefreshRightPanel()  -- Update checkmarks
+        end
+    end)
+
     -- Set defaults if not already set
     local state = ns.browserState
     if not state.expansion then
@@ -971,152 +1060,138 @@ function ns:CreateItemBrowser()
 end
 
 -------------------------------------------------------------------------------
--- Dropdown Initialization
+-- Dropdown Initialization (Modern WowStyle1DropdownTemplate)
 -------------------------------------------------------------------------------
 
 function ns:InitTypeDropdown(dropdown)
-    UIDropDownMenu_Initialize(dropdown, function(self, level)
-        local types = {
-            {id = "raid", name = "Raids"},
-            {id = "dungeon", name = "Dungeons"},
-        }
+    local types = {
+        {id = "raid", name = "Raids"},
+        {id = "dungeon", name = "Dungeons"},
+    }
 
+    dropdown:SetupMenu(function(dropdown, rootDescription)
         for _, typeInfo in ipairs(types) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = typeInfo.name
-            info.checked = (ns.browserState.instanceType == typeInfo.id)
-            info.func = function()
-                local state = ns.browserState
-                state.instanceType = typeInfo.id
-                UIDropDownMenu_SetText(dropdown, typeInfo.name)
-                state.selectedInstance = nil  -- Will be auto-selected in RefreshLeftPanel
-                state.selectedDifficultyIndex = nil  -- Reset to let SetDefaultDifficulty pick
-                state.expandedBosses = {}
-                if typeInfo.id == "raid" then
-                    state.currentSeasonFilter = false
+            rootDescription:CreateRadio(typeInfo.name,
+                function() return ns.browserState.instanceType == typeInfo.id end,
+                function()
+                    local state = ns.browserState
+                    state.instanceType = typeInfo.id
+                    state.selectedInstance = nil
+                    state.selectedDifficultyIndex = nil
+                    state.expandedBosses = {}
+                    if typeInfo.id == "raid" then
+                        state.currentSeasonFilter = false
+                    end
+                    InvalidateCache()
+                    ns:RefreshBrowser()
                 end
-                InvalidateCache()
-                ns:RefreshBrowser()
-            end
-            UIDropDownMenu_AddButton(info)
+            )
         end
     end)
 
-    local displayName = ns.browserState.instanceType == "raid" and "Raids" or "Dungeons"
-    UIDropDownMenu_SetText(dropdown, displayName)
+    dropdown:SetDefaultText("Raids")
 end
 
 function ns:InitExpansionDropdown(dropdown)
-    UIDropDownMenu_Initialize(dropdown, function(self, level)
+    dropdown:SetupMenu(function(dropdown, rootDescription)
         local state = ns.browserState
 
         -- Add "Current Season" option for dungeons
         if state.instanceType == "dungeon" then
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = "Current Season"
-            info.checked = state.currentSeasonFilter
-            info.func = function()
-                state.currentSeasonFilter = true
-                state.expansion = nil
-                UIDropDownMenu_SetText(dropdown, "Current Season")
-                state.selectedInstance = nil
-                state.selectedDifficultyIndex = nil
-                state.expandedBosses = {}
-                InvalidateCache()
-                ns:RefreshBrowser()
-            end
-            UIDropDownMenu_AddButton(info)
-        end
-
-        for _, exp in ipairs(GetExpansionTiers()) do
-            -- Skip "Current Season" for dungeons (already added above with M+ pool logic)
-            if not (state.instanceType == "dungeon" and exp.name == "Current Season") then
-                local info = UIDropDownMenu_CreateInfo()
-                info.text = exp.name
-                info.checked = (not state.currentSeasonFilter and state.expansion == exp.id)
-                info.func = function()
-                    state.currentSeasonFilter = false
-                    state.expansion = exp.id
-                    UIDropDownMenu_SetText(dropdown, exp.name)
+            rootDescription:CreateRadio("Current Season",
+                function() return state.currentSeasonFilter end,
+                function()
+                    state.currentSeasonFilter = true
+                    state.expansion = nil
                     state.selectedInstance = nil
                     state.selectedDifficultyIndex = nil
                     state.expandedBosses = {}
                     InvalidateCache()
                     ns:RefreshBrowser()
                 end
-                UIDropDownMenu_AddButton(info)
+            )
+        end
+
+        for _, exp in ipairs(GetExpansionTiers()) do
+            if not (state.instanceType == "dungeon" and exp.name == "Current Season") then
+                rootDescription:CreateRadio(exp.name,
+                    function() return not state.currentSeasonFilter and state.expansion == exp.id end,
+                    function()
+                        state.currentSeasonFilter = false
+                        state.expansion = exp.id
+                        state.selectedInstance = nil
+                        state.selectedDifficultyIndex = nil
+                        state.expandedBosses = {}
+                        InvalidateCache()
+                        ns:RefreshBrowser()
+                    end
+                )
             end
         end
     end)
+
+    dropdown:SetDefaultText("Select Expansion")
 end
 
 function ns:InitClassDropdown(dropdown)
-    UIDropDownMenu_Initialize(dropdown, function(self, level)
+    dropdown:SetupMenu(function(dropdown, rootDescription)
         for _, classInfo in ipairs(CLASS_DATA) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = classInfo.name
-            info.checked = (ns.browserState.classFilter == classInfo.id)
-            info.func = function()
-                ns.browserState.classFilter = classInfo.id
-                UIDropDownMenu_SetText(dropdown, classInfo.name)
-                ns.browserState.expandedBosses = {}
-                InvalidateCache()  -- Class filter changes EJ results
-                ns:RefreshBrowser()
-            end
-            UIDropDownMenu_AddButton(info)
+            rootDescription:CreateRadio(classInfo.name,
+                function() return ns.browserState.classFilter == classInfo.id end,
+                function()
+                    ns.browserState.classFilter = classInfo.id
+                    ns.browserState.expandedBosses = {}
+                    InvalidateCache()
+                    ns:RefreshBrowser()
+                end
+            )
         end
     end)
+
+    dropdown:SetDefaultText("All Classes")
 end
 
 function ns:InitSlotDropdown(dropdown)
-    UIDropDownMenu_Initialize(dropdown, function(self, level)
+    dropdown:SetupMenu(function(dropdown, rootDescription)
         for _, slotInfo in ipairs(SLOT_DROPDOWN_OPTIONS) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = slotInfo.name
-            info.checked = (ns.browserState.slotFilter == slotInfo.id)
-            info.func = function()
-                ns.browserState.slotFilter = slotInfo.id
-                UIDropDownMenu_SetText(dropdown, slotInfo.name)
-                -- Slot filter is client-side only, no cache invalidation
-                ns:RefreshRightPanel()
-            end
-            UIDropDownMenu_AddButton(info)
+            rootDescription:CreateRadio(slotInfo.name,
+                function() return ns.browserState.slotFilter == slotInfo.id end,
+                function()
+                    ns.browserState.slotFilter = slotInfo.id
+                    ns:RefreshRightPanel()
+                end
+            )
         end
     end)
 
-    UIDropDownMenu_SetText(dropdown, "All Slots")
+    dropdown:SetDefaultText("All Slots")
 end
 
 function ns:InitDifficultyDropdown(dropdown)
-    UIDropDownMenu_Initialize(dropdown, function(self, level)
+    dropdown:SetupMenu(function(dropdown, rootDescription)
         local state = ns.browserState
-
         local difficulties = GetDifficultyOptionsForInstance(state.selectedInstance)
 
         if #difficulties == 0 then
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = "No difficulties"
-            info.disabled = true
-            UIDropDownMenu_AddButton(info)
+            rootDescription:CreateButton("No difficulties"):SetEnabled(false)
             return
         end
 
         for idx, diff in ipairs(difficulties) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = diff.name
-            info.checked = (state.selectedDifficultyIndex == idx)
-            info.func = function()
-                state.selectedDifficultyIndex = idx
-                state.selectedDifficultyID = diff.id
-                state.selectedTrack = diff.track
-                UIDropDownMenu_SetText(dropdown, diff.name)
-                -- Difficulty changes item links (bonus IDs), invalidate cache to reload
-                InvalidateCache()
-                ns:RefreshRightPanel()
-            end
-            UIDropDownMenu_AddButton(info)
+            rootDescription:CreateRadio(diff.name,
+                function() return state.selectedDifficultyIndex == idx end,
+                function()
+                    state.selectedDifficultyIndex = idx
+                    state.selectedDifficultyID = diff.id
+                    state.selectedTrack = diff.track
+                    InvalidateCache()
+                    ns:RefreshRightPanel()
+                end
+            )
         end
     end)
+
+    dropdown:SetDefaultText("Select Difficulty")
 end
 
 -------------------------------------------------------------------------------
@@ -1129,42 +1204,56 @@ function ns:RefreshBrowser()
     end
 
     local state = ns.browserState
+    local frame = ns.ItemBrowser
 
-    -- Update dropdown texts
-    UIDropDownMenu_SetText(ns.ItemBrowser.typeDropdown,
-        state.instanceType == "raid" and "Raids" or "Dungeons")
+    -- Update dropdown selection texts (OverrideText forces display text)
+    if frame.typeDropdown then
+        frame.typeDropdown:OverrideText(state.instanceType == "raid" and "Raids" or "Dungeons")
+    end
 
-    if state.currentSeasonFilter then
-        UIDropDownMenu_SetText(ns.ItemBrowser.expDropdown, "Current Season")
-    else
-        for _, exp in ipairs(GetExpansionTiers()) do
-            if exp.id == state.expansion then
-                UIDropDownMenu_SetText(ns.ItemBrowser.expDropdown, exp.name)
+    if frame.expDropdown then
+        if state.currentSeasonFilter then
+            frame.expDropdown:OverrideText("Current Season")
+        else
+            local expName = "Select Expansion"
+            for _, exp in ipairs(GetExpansionTiers()) do
+                if exp.id == state.expansion then
+                    expName = exp.name
+                    break
+                end
+            end
+            frame.expDropdown:OverrideText(expName)
+        end
+    end
+
+    if frame.classDropdown then
+        local className = "All Classes"
+        for _, classInfo in ipairs(CLASS_DATA) do
+            if classInfo.id == state.classFilter then
+                className = classInfo.name
                 break
             end
         end
+        frame.classDropdown:OverrideText(className)
     end
 
-    for _, classInfo in ipairs(CLASS_DATA) do
-        if classInfo.id == state.classFilter then
-            UIDropDownMenu_SetText(ns.ItemBrowser.classDropdown, classInfo.name)
-            break
+    if frame.slotDropdown then
+        local slotName = "All Slots"
+        for _, slotInfo in ipairs(SLOT_DROPDOWN_OPTIONS) do
+            if slotInfo.id == state.slotFilter then
+                slotName = slotInfo.name
+                break
+            end
         end
+        frame.slotDropdown:OverrideText(slotName)
     end
 
-    for _, slotInfo in ipairs(SLOT_DROPDOWN_OPTIONS) do
-        if slotInfo.id == state.slotFilter then
-            UIDropDownMenu_SetText(ns.ItemBrowser.slotDropdown, slotInfo.name)
-            break
-        end
-    end
-
-    -- Validate and update difficulty dropdown using instance-specific difficulties
-    if ns.ItemBrowser.difficultyDropdown then
+    -- Validate and update difficulty dropdown
+    if frame.difficultyDropdown then
         local difficulties = GetDifficultyOptionsForInstance(state.selectedInstance)
 
         if #difficulties == 0 then
-            UIDropDownMenu_SetText(ns.ItemBrowser.difficultyDropdown, "N/A")
+            frame.difficultyDropdown:OverrideText("N/A")
         else
             if not state.selectedDifficultyIndex or state.selectedDifficultyIndex > #difficulties then
                 ns:SetDefaultDifficulty(state)
@@ -1172,7 +1261,7 @@ function ns:RefreshBrowser()
 
             local diff = difficulties[state.selectedDifficultyIndex]
             if diff then
-                UIDropDownMenu_SetText(ns.ItemBrowser.difficultyDropdown, diff.name)
+                frame.difficultyDropdown:OverrideText(diff.name)
                 state.selectedDifficultyID = diff.id
                 state.selectedTrack = diff.track
             end
@@ -1193,55 +1282,30 @@ end
 
 function ns:RefreshLeftPanel()
     local frame = ns.ItemBrowser
-    local scrollChild = frame.leftScrollChild
-    local state = ns.browserState
-    local dims = frame.dims
+    if not frame or not frame.leftScrollBox then return end
 
-    instanceRowPool:ReleaseAll()
+    local state = ns.browserState
 
     local isRaid = (state.instanceType == "raid")
-    local yOffset = 0
-    local firstInstance = nil
-    local firstInstanceRow = nil
+    local data = {}
+    local firstInstanceID = nil
 
     -- Handle current season filter for dungeons
     if state.currentSeasonFilter and not isRaid then
         local seasonInstanceIDs = GetCurrentSeasonInstanceIDs()
         local allInstances = ns:GetAllInstances()
 
-        -- Iterate through season instances
+        -- Build data array from season instances
         for instanceID, _ in pairs(seasonInstanceIDs) do
             local instData = allInstances[instanceID]
             if instData then
-                local row = instanceRowPool:Acquire()
-
-                if not row.name then
-                    ns.UI:InitInstanceListRow(row, dims)
+                tinsert(data, {
+                    instanceID = instanceID,
+                    name = instData.name,
+                })
+                if not firstInstanceID then
+                    firstInstanceID = instanceID
                 end
-
-                row:SetWidth(scrollChild:GetWidth())
-                row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
-                row.name:SetText(instData.name)
-                row.instanceID = instanceID
-                row.instanceName = instData.name
-
-                if not firstInstance then
-                    firstInstance = instanceID
-                    firstInstanceRow = row
-                end
-
-                ns.UI:SetInstanceRowSelected(row, state.selectedInstance == instanceID)
-
-                row:SetScript("OnClick", function()
-                    state.selectedInstance = instanceID
-                    state.selectedDifficultyIndex = nil  -- Reset to pick new defaults
-                    state.expandedBosses = {}
-                    InvalidateCache()
-                    ns:RefreshBrowser()
-                end)
-
-                row:Show()
-                yOffset = yOffset - dims.instanceRowHeight
             end
         end
     else
@@ -1257,50 +1321,30 @@ function ns:RefreshLeftPanel()
 
         local instances = ns:GetInstancesForTier(tierID, isRaid)
 
+        -- Build data array from tier instances
         for _, inst in ipairs(instances) do
-            local row = instanceRowPool:Acquire()
-
-            if not row.name then
-                ns.UI:InitInstanceListRow(row, dims)
+            tinsert(data, {
+                instanceID = inst.id,
+                name = inst.name,
+            })
+            if not firstInstanceID then
+                firstInstanceID = inst.id
             end
-
-            row:SetWidth(scrollChild:GetWidth())
-            row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
-            row.name:SetText(inst.name)
-            row.instanceID = inst.id
-            row.instanceName = inst.name
-
-            if not firstInstance then
-                firstInstance = inst.id
-                firstInstanceRow = row
-            end
-
-            ns.UI:SetInstanceRowSelected(row, state.selectedInstance == inst.id)
-
-            row:SetScript("OnClick", function()
-                state.selectedInstance = inst.id
-                state.selectedDifficultyIndex = nil  -- Reset to pick new defaults
-                state.expandedBosses = {}
-                InvalidateCache()
-                ns:RefreshBrowser()
-            end)
-
-            row:Show()
-            yOffset = yOffset - dims.instanceRowHeight
         end
     end
 
     -- Auto-select first instance if none selected
-    if not state.selectedInstance and firstInstance then
-        state.selectedInstance = firstInstance
-        if firstInstanceRow then
-            ns.UI:SetInstanceRowSelected(firstInstanceRow, true)
-        end
+    if not state.selectedInstance and firstInstanceID then
+        state.selectedInstance = firstInstanceID
         InvalidateCache()
-        self:RefreshRightPanel()
     end
 
-    scrollChild:SetHeight(math.max(math.abs(yOffset), 1))
+    -- Create and set DataProvider
+    local dataProvider = CreateDataProvider(data)
+    frame.leftScrollBox:SetDataProvider(dataProvider)
+
+    -- Refresh right panel after left panel is ready
+    self:RefreshRightPanel()
 end
 
 function ns:RefreshRightPanel()
@@ -1389,15 +1433,20 @@ end
 -------------------------------------------------------------------------------
 
 function ns:ClearBrowserRowPools()
-    -- Only the left panel uses frame pools now
-    if instanceRowPool then instanceRowPool:ReleaseAll() end
-    instanceRowPool = nil
+    -- Both panels now use ScrollBox, nothing to release
 end
 
 function ns:CleanupItemBrowser()
-    ns:ClearBrowserRowPools()
     InvalidateCache()
     if ns.ItemBrowser then
         ns.ItemBrowser:UnregisterAllEvents()
+
+        -- Unsubscribe from state events
+        if ns.ItemBrowser.stateHandles then
+            for event, handle in pairs(ns.ItemBrowser.stateHandles) do
+                ns.State:Unsubscribe(ns.StateEvents[event:upper()] or event, handle)
+            end
+            ns.ItemBrowser.stateHandles = nil
+        end
     end
 end

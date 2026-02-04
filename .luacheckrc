@@ -82,6 +82,9 @@ read_globals = {
     -- Event Registry
     "EventRegistry",
 
+    -- Modern Menu Utilities (11.0+)
+    "MenuUtil",
+
     -- Color Manager (11.1.5+)
     "ColorManager",
 
