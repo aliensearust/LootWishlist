@@ -131,6 +131,10 @@ ns.browserState = {
     selectedTrack = nil,
     currentSeasonFilter = false,
 
+    -- Remembered difficulty per instance type
+    lastRaidDifficultyID = nil,
+    lastDungeonDifficultyID = nil,
+
     -- Client-side filters (don't invalidate cache)
     slotFilter = "ALL",
     searchText = "",
@@ -632,8 +636,23 @@ function ns:SetDefaultDifficulty(state)
         return
     end
 
-    -- Find a good default: prefer Heroic for raids, Mythic for dungeons
-    local preferredDiffIDs = isRaid and {15, 14, 16, 17} or {23, 2, 1}
+    -- Check if there's a saved difficulty for this type
+    local savedDiffID = isRaid and state.lastRaidDifficultyID or state.lastDungeonDifficultyID
+    if savedDiffID then
+        for idx, diff in ipairs(difficulties) do
+            if diff.id == savedDiffID then
+                state.selectedDifficultyIndex = idx
+                state.selectedDifficultyID = diff.id
+                state.selectedTrack = diff.track
+                return
+            end
+        end
+    end
+
+    -- No saved difficulty or not available, find a good default
+    -- Default to Normal for both raids and dungeons
+    -- Normal IDs: 1 (Normal dungeon), 14 (Normal raid)
+    local preferredDiffIDs = {1, 14, 2, 15}  -- Normal dungeon, Normal raid, Heroic dungeon, Heroic raid
 
     state.selectedDifficultyIndex = 1
     for _, prefID in ipairs(preferredDiffIDs) do
@@ -651,6 +670,43 @@ function ns:SetDefaultDifficulty(state)
         state.selectedDifficultyID = diff.id
         state.selectedTrack = diff.track
     end
+end
+
+-- Get the first instance for the current state (type, expansion, season filter)
+function ns:GetFirstInstanceForCurrentState(state)
+    local isRaid = (state.instanceType == "raid")
+
+    -- Handle current season filter for dungeons
+    if state.currentSeasonFilter and not isRaid then
+        local seasonInstanceIDs = GetCurrentSeasonInstanceIDs()
+        local allInstances = ns:GetAllInstances()
+
+        for instanceID, _ in pairs(seasonInstanceIDs) do
+            local instData = allInstances[instanceID]
+            if instData then
+                return instanceID
+            end
+        end
+        return nil
+    end
+
+    -- Get instances for selected tier from static data
+    local tierID = state.expansion
+    if not tierID then
+        local tiers = GetExpansionTiers()
+        if tiers[1] then
+            tierID = tiers[1].id
+        end
+    end
+
+    if not tierID then return nil end
+
+    local instances = ns:GetInstancesForTier(tierID, isRaid)
+    if instances and instances[1] then
+        return instances[1].id
+    end
+
+    return nil
 end
 
 -------------------------------------------------------------------------------
@@ -848,7 +904,7 @@ function ns:CreateItemBrowser()
         -- Click handler
         rowFrame:SetScript("OnClick", function()
             state.selectedInstance = elementData.instanceID
-            state.selectedDifficultyIndex = nil  -- Reset to pick new defaults
+            -- Keep current difficulty when changing instances within same type
             state.expandedBosses = {}
             InvalidateCache()
             ns:RefreshBrowser()
@@ -1063,6 +1119,10 @@ function ns:CreateItemBrowser()
         local _, _, playerClassID = UnitClass("player")
         state.classFilter = playerClassID or 0
     end
+    -- Auto-select first instance before setting difficulty (prevents N/A on first open)
+    if not state.selectedInstance then
+        state.selectedInstance = self:GetFirstInstanceForCurrentState(state)
+    end
     if not state.selectedDifficultyIndex then
         ns:SetDefaultDifficulty(state)
     end
@@ -1089,13 +1149,32 @@ function ns:InitTypeDropdown(dropdown)
                 function() return ns.browserState.instanceType == typeInfo.id end,
                 function()
                     local state = ns.browserState
+                    local oldType = state.instanceType
+
+                    -- Save current difficulty for old type before switching
+                    if oldType == "raid" and state.selectedDifficultyID then
+                        state.lastRaidDifficultyID = state.selectedDifficultyID
+                    elseif oldType == "dungeon" and state.selectedDifficultyID then
+                        state.lastDungeonDifficultyID = state.selectedDifficultyID
+                    end
+
                     state.instanceType = typeInfo.id
-                    state.selectedInstance = nil
-                    state.selectedDifficultyIndex = nil
                     state.expandedBosses = {}
                     if typeInfo.id == "raid" then
                         state.currentSeasonFilter = false
                     end
+
+                    -- Auto-select first instance for new type (prevents N/A difficulty)
+                    state.selectedInstance = ns:GetFirstInstanceForCurrentState(state)
+
+                    -- Restore saved difficulty for new type (or nil to trigger default)
+                    if typeInfo.id == "raid" then
+                        state.selectedDifficultyID = state.lastRaidDifficultyID
+                    else
+                        state.selectedDifficultyID = state.lastDungeonDifficultyID
+                    end
+                    state.selectedDifficultyIndex = nil  -- Will be resolved in RefreshBrowser
+
                     InvalidateCache()
                     ns:RefreshBrowser()
                 end
@@ -1117,8 +1196,9 @@ function ns:InitExpansionDropdown(dropdown)
                 function()
                     state.currentSeasonFilter = true
                     state.expansion = nil
-                    state.selectedInstance = nil
-                    state.selectedDifficultyIndex = nil
+                    -- Auto-select first instance for new tier
+                    state.selectedInstance = ns:GetFirstInstanceForCurrentState(state)
+                    -- Keep current difficulty when changing tiers within same type
                     state.expandedBosses = {}
                     InvalidateCache()
                     ns:RefreshBrowser()
@@ -1133,8 +1213,9 @@ function ns:InitExpansionDropdown(dropdown)
                     function()
                         state.currentSeasonFilter = false
                         state.expansion = exp.id
-                        state.selectedInstance = nil
-                        state.selectedDifficultyIndex = nil
+                        -- Auto-select first instance for new tier
+                        state.selectedInstance = ns:GetFirstInstanceForCurrentState(state)
+                        -- Keep current difficulty when changing tiers within same type
                         state.expandedBosses = {}
                         InvalidateCache()
                         ns:RefreshBrowser()
@@ -1172,7 +1253,7 @@ function ns:InitSlotDropdown(dropdown)
                 function() return ns.browserState.slotFilter == slotInfo.id end,
                 function()
                     ns.browserState.slotFilter = slotInfo.id
-                    ns:RefreshRightPanel()
+                    ns:RefreshBrowser()
                 end
             )
         end
@@ -1199,7 +1280,7 @@ function ns:InitDifficultyDropdown(dropdown)
                     state.selectedDifficultyID = diff.id
                     state.selectedTrack = diff.track
                     InvalidateCache()
-                    ns:RefreshRightPanel()
+                    ns:RefreshBrowser()
                 end
             )
         end
@@ -1269,7 +1350,21 @@ function ns:RefreshBrowser()
         if #difficulties == 0 then
             frame.difficultyDropdown:OverrideText("N/A")
         else
-            if not state.selectedDifficultyIndex or state.selectedDifficultyIndex > #difficulties then
+            -- Try to find matching difficulty by ID first (preserves selection across instances)
+            local foundIndex = nil
+            if state.selectedDifficultyID then
+                for idx, diff in ipairs(difficulties) do
+                    if diff.id == state.selectedDifficultyID then
+                        foundIndex = idx
+                        break
+                    end
+                end
+            end
+
+            if foundIndex then
+                state.selectedDifficultyIndex = foundIndex
+            elseif not state.selectedDifficultyIndex or state.selectedDifficultyIndex > #difficulties then
+                -- Difficulty not available for this instance, use default
                 ns:SetDefaultDifficulty(state)
             end
 
