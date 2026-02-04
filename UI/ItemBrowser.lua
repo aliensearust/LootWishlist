@@ -262,11 +262,19 @@ local function CacheInstanceData(onComplete)
             local info = C_EncounterJournal.GetLootInfoByIndex(lootIndex)
             if info and info.itemID then
                 -- EJ API returns properly filtered items with correct difficulty links
+                local slot = info.slot
+                if (not slot or slot == "") and info.itemID then
+                    local _, _, _, equipLoc = C_Item.GetItemInfoInstant(info.itemID)
+                    if equipLoc and equipLoc ~= "" then
+                        slot = _G[equipLoc] or equipLoc
+                    end
+                end
+
                 local lootEntry = {
                     itemID = info.itemID,
                     name = info.name or "",
                     icon = info.icon or 134400,
-                    slot = info.slot or "",
+                    slot = slot or "",
                     filterType = info.filterType,
                     link = info.link,  -- Has correct bonus IDs for difficulty
                     bossName = encounter.name,
@@ -333,6 +341,7 @@ local function CacheInstanceData(onComplete)
                 -- Update cached entry with loaded data
                 local loadedName = item:GetItemName()
                 local loadedIcon = item:GetItemIcon()
+                local loadedLink = item:GetItemLink()
 
                 if loadedName and loadedName ~= "" then
                     pending.entry.name = loadedName
@@ -342,6 +351,9 @@ local function CacheInstanceData(onComplete)
                 end
                 if loadedIcon then
                     pending.entry.icon = loadedIcon
+                end
+                if loadedLink and not pending.entry.link then
+                    pending.entry.link = loadedLink
                 end
 
                 loadedCount = loadedCount + 1
@@ -934,11 +946,13 @@ function ns:CreateItemBrowser()
 
             rowFrame:SetScript("OnEnter", function(self)
                 ns.UI:SetGradient(self.bg, self.hoverColors[1], self.hoverColors[2])
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 if elementData.link then
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                     GameTooltip:SetHyperlink(elementData.link)
-                    GameTooltip:Show()
+                else
+                    GameTooltip:SetItemByID(elementData.itemID)
                 end
+                GameTooltip:Show()
             end)
             rowFrame:SetScript("OnLeave", function(self)
                 ns.UI:SetGradient(self.bg, self.normalColors[1], self.normalColors[2])
