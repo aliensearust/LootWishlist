@@ -611,6 +611,42 @@ local function InvalidateSeasonCache()
     cachedSeasonInstanceIDs = nil
 end
 
+-- Current raid season instance IDs cache
+local cachedRaidSeasonInstanceIDs = nil
+
+-- Get current season raid instance IDs dynamically using Encounter Journal API
+local function GetCurrentSeasonRaidInstanceIDs()
+    if cachedRaidSeasonInstanceIDs then
+        return cachedRaidSeasonInstanceIDs
+    end
+
+    local instanceIDs = {}
+
+    -- Get the current tier from the Encounter Journal
+    local currentTier = EJ_GetCurrentTier()
+    if not currentTier then return instanceIDs end
+
+    -- Select the current tier
+    EJ_SelectTier(currentTier)
+
+    -- Iterate through raid instances in this tier
+    local index = 1
+    while true do
+        local instanceID, name = EJ_GetInstanceByIndex(index, true) -- true = raids
+        if not instanceID then break end
+        instanceIDs[instanceID] = true
+        index = index + 1
+    end
+
+    cachedRaidSeasonInstanceIDs = instanceIDs
+    return instanceIDs
+end
+
+-- Invalidate raid season cache (call on season/tier change)
+local function InvalidateRaidSeasonCache()
+    cachedRaidSeasonInstanceIDs = nil
+end
+
 -- Build difficulty options for current instance from static data
 local function GetDifficultyOptionsForInstance(instanceID)
     if not instanceID then return {} end
@@ -676,9 +712,14 @@ end
 function ns:GetFirstInstanceForCurrentState(state)
     local isRaid = (state.instanceType == "raid")
 
-    -- Handle current season filter for dungeons
-    if state.currentSeasonFilter and not isRaid then
-        local seasonInstanceIDs = GetCurrentSeasonInstanceIDs()
+    -- Handle current season filter for both dungeons and raids
+    if state.currentSeasonFilter then
+        local seasonInstanceIDs
+        if isRaid then
+            seasonInstanceIDs = GetCurrentSeasonRaidInstanceIDs()
+        else
+            seasonInstanceIDs = GetCurrentSeasonInstanceIDs()
+        end
         local allInstances = ns:GetAllInstances()
 
         for instanceID, _ in pairs(seasonInstanceIDs) do
@@ -1160,9 +1201,6 @@ function ns:InitTypeDropdown(dropdown)
 
                     state.instanceType = typeInfo.id
                     state.expandedBosses = {}
-                    if typeInfo.id == "raid" then
-                        state.currentSeasonFilter = false
-                    end
 
                     -- Auto-select first instance for new type (prevents N/A difficulty)
                     state.selectedInstance = ns:GetFirstInstanceForCurrentState(state)
@@ -1189,25 +1227,23 @@ function ns:InitExpansionDropdown(dropdown)
     dropdown:SetupMenu(function(dropdown, rootDescription)
         local state = ns.browserState
 
-        -- Add "Current Season" option for dungeons
-        if state.instanceType == "dungeon" then
-            rootDescription:CreateRadio("Current Season",
-                function() return state.currentSeasonFilter end,
-                function()
-                    state.currentSeasonFilter = true
-                    state.expansion = nil
-                    -- Auto-select first instance for new tier
-                    state.selectedInstance = ns:GetFirstInstanceForCurrentState(state)
-                    -- Keep current difficulty when changing tiers within same type
-                    state.expandedBosses = {}
-                    InvalidateCache()
-                    ns:RefreshBrowser()
-                end
-            )
-        end
+        -- Add "Current Season" option for both dungeons and raids
+        rootDescription:CreateRadio("Current Season",
+            function() return state.currentSeasonFilter end,
+            function()
+                state.currentSeasonFilter = true
+                state.expansion = nil
+                -- Auto-select first instance for new tier
+                state.selectedInstance = ns:GetFirstInstanceForCurrentState(state)
+                -- Keep current difficulty when changing tiers within same type
+                state.expandedBosses = {}
+                InvalidateCache()
+                ns:RefreshBrowser()
+            end
+        )
 
         for _, exp in ipairs(GetExpansionTiers()) do
-            if not (state.instanceType == "dungeon" and exp.name == "Current Season") then
+            if exp.name ~= "Current Season" then
                 rootDescription:CreateRadio(exp.name,
                     function() return not state.currentSeasonFilter and state.expansion == exp.id end,
                     function()
@@ -1399,9 +1435,14 @@ function ns:RefreshLeftPanel()
     local data = {}
     local firstInstanceID = nil
 
-    -- Handle current season filter for dungeons
-    if state.currentSeasonFilter and not isRaid then
-        local seasonInstanceIDs = GetCurrentSeasonInstanceIDs()
+    -- Handle current season filter for both dungeons and raids
+    if state.currentSeasonFilter then
+        local seasonInstanceIDs
+        if isRaid then
+            seasonInstanceIDs = GetCurrentSeasonRaidInstanceIDs()
+        else
+            seasonInstanceIDs = GetCurrentSeasonInstanceIDs()
+        end
         local allInstances = ns:GetAllInstances()
 
         -- Build data array from season instances
