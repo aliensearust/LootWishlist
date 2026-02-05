@@ -9,8 +9,10 @@ ignore = {
     "211",  -- Unused local variable
     "212",  -- Unused argument (common in event handlers)
     "213",  -- Unused loop variable
+    "241",  -- Variable mutated but never accessed (event handle tables)
     "431",  -- Shadowing upvalue (common in WoW UI callbacks)
     "432",  -- Shadowing upvalue argument (self in nested handlers)
+    "512",  -- Loop executed at most once (intentional early-return patterns)
 }
 
 -- Addon globals (writeable)
