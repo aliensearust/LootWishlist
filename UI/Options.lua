@@ -157,34 +157,6 @@ local function CreateOptionsPanel()
     browserDropdown:SetText(browserSizeLabels[ns.db.settings.browserSize] or "Normal")
     yOffset = yOffset - 50
 
-    -- Browse Defaults Section
-    local browseHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    browseHeader:SetPoint("TOPLEFT", leftMargin, yOffset)
-    browseHeader:SetText("Browse Defaults")
-    yOffset = yOffset - 25
-
-    -- Default Track Dropdown
-    local trackLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    trackLabel:SetPoint("TOPLEFT", leftMargin, yOffset)
-    trackLabel:SetText("Default Track:")
-
-    local trackDropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
-    trackDropdown:SetPoint("LEFT", trackLabel, "RIGHT", 10, 0)
-    trackDropdown:SetWidth(120)
-
-    trackDropdown:SetupMenu(function(dropdown, rootDescription)
-        for _, track in ipairs(ns.TRACKS) do
-            rootDescription:CreateRadio(ns.TRACK_LABELS[track],
-                function() return ns.db.settings.defaultTrack == track end,
-                function()
-                    ns.db.settings.defaultTrack = track
-                    dropdown:SetText(ns.TRACK_LABELS[track])
-                end)
-        end
-    end)
-    trackDropdown:SetText(ns.TRACK_LABELS[ns.db.settings.defaultTrack] or "Hero")
-    yOffset = yOffset - 50
-
     -- Danger Zone Section
     local dangerHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     dangerHeader:SetPoint("TOPLEFT", leftMargin, yOffset)

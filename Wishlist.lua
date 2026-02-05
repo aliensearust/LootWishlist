@@ -289,7 +289,7 @@ function ns:SetActiveWishlist(name)
 end
 
 -- Add item to active wishlist
-function ns:AddItemToWishlist(itemID, wishlistName, sourceText, upgradeTrack, itemLink)
+function ns:AddItemToWishlist(itemID, wishlistName, sourceText, itemLink)
     wishlistName = wishlistName or self:GetActiveWishlistName()
     local wishlist = self.db.wishlists[wishlistName]
 
@@ -297,9 +297,9 @@ function ns:AddItemToWishlist(itemID, wishlistName, sourceText, upgradeTrack, it
         return false, "Wishlist does not exist"
     end
 
-    -- Check if already in wishlist (same itemID, sourceText, AND upgradeTrack)
+    -- Check if already in wishlist (same itemID and sourceText)
     for _, entry in ipairs(wishlist.items) do
-        if entry.itemID == itemID and entry.sourceText == (sourceText or "") and entry.upgradeTrack == upgradeTrack then
+        if entry.itemID == itemID and entry.sourceText == (sourceText or "") then
             return false, "Item already in wishlist"
         end
     end
@@ -307,7 +307,6 @@ function ns:AddItemToWishlist(itemID, wishlistName, sourceText, upgradeTrack, it
     table.insert(wishlist.items, {
         itemID = itemID,
         sourceText = sourceText or "",
-        upgradeTrack = upgradeTrack,
         itemLink = itemLink,
     })
 
@@ -402,7 +401,7 @@ function ns:IsItemOnWishlist(itemID, wishlistName)
 end
 
 -- Check if item with specific source is on wishlist
-function ns:IsItemOnWishlistWithSource(itemID, sourceText, wishlistName, upgradeTrack)
+function ns:IsItemOnWishlistWithSource(itemID, sourceText, wishlistName)
     wishlistName = wishlistName or self:GetActiveWishlistName()
     local wishlist = self.db.wishlists[wishlistName]
 
@@ -412,10 +411,7 @@ function ns:IsItemOnWishlistWithSource(itemID, sourceText, wishlistName, upgrade
 
     for _, entry in ipairs(wishlist.items) do
         if entry.itemID == itemID and entry.sourceText == (sourceText or "") then
-            -- If upgradeTrack specified, also check track matches
-            if upgradeTrack == nil or entry.upgradeTrack == upgradeTrack then
-                return true
-            end
+            return true
         end
     end
 
@@ -478,25 +474,6 @@ function ns:GetWishlistProgress(wishlistName)
     end
 
     return collected, total
-end
-
--- Update upgrade track for a wishlist item
-function ns:UpdateItemTrack(itemID, sourceText, newTrack, wishlistName)
-    wishlistName = wishlistName or self:GetActiveWishlistName()
-    local wishlist = self.db.wishlists[wishlistName]
-
-    if not wishlist then
-        return false, "Wishlist does not exist"
-    end
-
-    for _, entry in ipairs(wishlist.items) do
-        if entry.itemID == itemID and entry.sourceText == (sourceText or "") then
-            entry.upgradeTrack = newTrack
-            return true
-        end
-    end
-
-    return false, "Item not in wishlist"
 end
 
 -- Get item quality color (uses ColorManager API for accessibility/colorblind support)

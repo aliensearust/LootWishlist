@@ -42,67 +42,6 @@ local chatLootCleanupTicker = nil
 local lootBucket = nil
 local LOOT_BUCKET_DELAY = 0.1  -- seconds
 
--- Parse bonus IDs from item link
--- Format: item:itemID:enchant:gem1:gem2:gem3:gem4:suffixID:uniqueID:level:specID:modifiersMask:itemContext:numBonusIDs:bonusID1:bonusID2:...
-function ns:ParseBonusIDsFromLink(itemLink)
-    local bonusIDs = {}
-    if not itemLink then return bonusIDs end
-
-    -- Extract the item string from the link
-    local itemString = itemLink:match("item[%-?%d:]+")
-    if not itemString then return bonusIDs end
-
-    local parts = {strsplit(":", itemString)}
-
-    -- Position 14 is numBonusIDs (1-indexed in Lua)
-    local numBonusIdx = 14
-    local numBonus = tonumber(parts[numBonusIdx]) or 0
-
-    for i = 1, numBonus do
-        local bonusID = parts[numBonusIdx + i]
-        if bonusID and bonusID ~= "" then
-            table.insert(bonusIDs, tonumber(bonusID))
-        end
-    end
-
-    return bonusIDs
-end
-
--- Get upgrade track from item link via bonus ID lookup
-function ns:GetUpgradeTrackFromLink(itemLink)
-    if not ns.TRACK_DATA or not ns.TRACK_DATA.BONUS_TO_TRACK then
-        return nil
-    end
-
-    local bonusIDs = self:ParseBonusIDsFromLink(itemLink)
-    for _, bonusID in ipairs(bonusIDs) do
-        local track = ns.TRACK_DATA.BONUS_TO_TRACK[bonusID]
-        if track then
-            return track
-        end
-    end
-
-    return nil
-end
-
--- Check if we should alert for this item based on upgrade track
-function ns:ShouldAlertForTrack(itemLink, wishlistEntry)
-    -- Legacy items without upgradeTrack = no alerts
-    if not wishlistEntry.upgradeTrack then
-        return false
-    end
-
-    local droppedTrack = self:GetUpgradeTrackFromLink(itemLink)
-
-    -- World drop or couldn't determine track = alert anyway
-    if not droppedTrack then
-        return true
-    end
-
-    -- Exact track match required
-    return droppedTrack == wishlistEntry.upgradeTrack
-end
-
 -- Event handler functions with bucketing
 function ns:OnLootReady(event, autoLoot)
     -- Bucket loot processing to avoid processing same window multiple times
@@ -263,20 +202,6 @@ function ns:CheckLootSlot(slot)
     if not isOnWishlist then return end
 
     if self:IsItemCollected(itemID) then return end
-
-    -- Check track filter - find all matching wishlist items
-    local shouldAlert = false
-    local wishlist = self.db.wishlists[wishlistName]
-    if wishlist then
-        for _, entry in ipairs(wishlist.items) do
-            if entry.itemID == itemID and self:ShouldAlertForTrack(lootLink, entry) then
-                shouldAlert = true
-                break
-            end
-        end
-    end
-
-    if not shouldAlert then return end
 
     self:ShowLootAlert(slot, itemID, lootLink, wishlistName)
     pendingLootItems[itemID] = true

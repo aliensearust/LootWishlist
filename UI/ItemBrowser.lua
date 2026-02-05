@@ -153,7 +153,6 @@ ns.browserState = {
     classFilter = 0,
     selectedDifficultyID = nil,
     selectedDifficultyIndex = nil,
-    selectedTrack = nil,
     currentSeasonFilter = false,
 
     -- Remembered difficulty per instance type
@@ -259,26 +258,24 @@ local function CacheInstanceData(onComplete)
 
     local instanceName = GetCachedInstanceName(state.selectedInstance)
 
-    -- Set up EJ API filters before loading items
-    -- Class filter: 0 = all classes, else specific class ID
-    local classID = state.classFilter > 0 and state.classFilter or 0
-    EJ_SetLootFilter(classID, 0)  -- 0 = all specs
+    -- Collect all items from EJ API with state protection
+    local bosses = {}
+    local searchIndex = {}
+    local pendingItems = {}
 
-    -- Select instance and set difficulty via EJ API
+    -- Select instance first, then set filters (order matters for EJ API)
     EJ_SelectInstance(state.selectedInstance)
     if state.selectedDifficultyID then
         EJ_SetDifficulty(state.selectedDifficultyID)
     end
 
+    -- Class filter must be set AFTER selecting instance
+    -- 0 = all classes, else specific class ID; second param 0 = all specs
+    local classID = state.classFilter > 0 and state.classFilter or 0
+    EJ_SetLootFilter(classID, 0)
+
     -- Get encounters from static data (for structure/ordering)
     local encounters = ns:GetEncountersForInstance(state.selectedInstance)
-
-    -- Collect all items from EJ API
-    local bosses = {}
-    local searchIndex = {}
-
-    -- Track items needing async load
-    local pendingItems = {}
 
     for _, encounter in ipairs(encounters) do
         -- Select encounter in EJ API to get its loot
@@ -336,9 +333,6 @@ local function CacheInstanceData(onComplete)
             })
         end
     end
-
-    -- Reset loot filter when done to not affect other EJ usage
-    EJ_ResetLootFilter()
 
     -- Race condition check: version changed during load
     if cache.version ~= cacheVersion then
@@ -686,7 +680,6 @@ function ns:SetDefaultDifficulty(state)
     if not state.selectedInstance then
         state.selectedDifficultyIndex = 1
         state.selectedDifficultyID = nil
-        state.selectedTrack = "hero"
         return
     end
 
@@ -696,7 +689,6 @@ function ns:SetDefaultDifficulty(state)
     if #difficulties == 0 then
         state.selectedDifficultyIndex = 1
         state.selectedDifficultyID = nil
-        state.selectedTrack = "hero"
         return
     end
 
@@ -707,7 +699,6 @@ function ns:SetDefaultDifficulty(state)
             if diff.id == savedDiffID then
                 state.selectedDifficultyIndex = idx
                 state.selectedDifficultyID = diff.id
-                state.selectedTrack = diff.track
                 return
             end
         end
@@ -732,7 +723,6 @@ function ns:SetDefaultDifficulty(state)
     local diff = difficulties[state.selectedDifficultyIndex]
     if diff then
         state.selectedDifficultyID = diff.id
-        state.selectedTrack = diff.track
     end
 end
 
@@ -879,6 +869,7 @@ function ns:CreateItemBrowser()
     local diffLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     diffLabel:SetPoint("LEFT", typeDropdown, "RIGHT", 16, 0)
     diffLabel:SetText("Diff:")
+    frame.diffLabel = diffLabel
 
     local difficultyDropdown = ns.UI:CreateModernDropdown(filterRow1, dims.diffDropdown)
     difficultyDropdown:SetPoint("LEFT", diffLabel, "RIGHT", 4, 0)
@@ -1058,10 +1049,9 @@ function ns:CreateItemBrowser()
             -- Build source text
             local sourceText = elementData.bossName .. ", " .. (elementData.instanceName or cache.instanceName)
             rowFrame.sourceText = sourceText
-            rowFrame.track = state.selectedTrack
 
             -- Check if already on wishlist
-            local isOnWishlist = ns:IsItemOnWishlistWithSource(elementData.itemID, sourceText, nil, state.selectedTrack)
+            local isOnWishlist = ns:IsItemOnWishlistWithSource(elementData.itemID, sourceText)
             if isOnWishlist then
                 rowFrame.checkmark:Show()
                 rowFrame.name:SetTextColor(0.5, 0.5, 0.5)
@@ -1074,8 +1064,7 @@ function ns:CreateItemBrowser()
 
             -- Add item handler
             local function addItemHandler()
-                local track = state.selectedTrack or "hero"
-                local success = ns:AddItemToWishlist(elementData.itemID, nil, sourceText, track, elementData.link)
+                local success = ns:AddItemToWishlist(elementData.itemID, nil, sourceText, elementData.link)
                 if success then
                     ns:MarkRowAsAdded(rowFrame, elementData.itemID)
                     ns:RefreshMainWindow()
@@ -1358,7 +1347,6 @@ function ns:InitDifficultyDropdown(dropdown)
                 function()
                     state.selectedDifficultyIndex = idx
                     state.selectedDifficultyID = diff.id
-                    state.selectedTrack = diff.track
                     InvalidateCache()
                     ns:RefreshBrowser()
                 end
@@ -1428,8 +1416,14 @@ function ns:RefreshBrowser()
         local difficulties = GetDifficultyOptionsForInstance(state.selectedInstance)
 
         if #difficulties == 0 then
+            -- Disable difficulty dropdown for world bosses and instances without difficulty selection
+            -- Keep selectedDifficultyID/Index so it restores when switching back to normal instances
+            frame.difficultyDropdown:SetEnabled(false)
             frame.difficultyDropdown:OverrideText("N/A")
         else
+            -- Enable difficulty controls
+            frame.difficultyDropdown:SetEnabled(true)
+
             -- Try to find matching difficulty by ID first (preserves selection across instances)
             local foundIndex = nil
             if state.selectedDifficultyID then
@@ -1452,7 +1446,6 @@ function ns:RefreshBrowser()
             if diff then
                 frame.difficultyDropdown:OverrideText(diff.name)
                 state.selectedDifficultyID = diff.id
-                state.selectedTrack = diff.track
             end
         end
     end
@@ -1614,6 +1607,7 @@ end
 
 function ns:CleanupItemBrowser()
     InvalidateCache()
+
     if ns.ItemBrowser then
         ns.ItemBrowser:UnregisterAllEvents()
 

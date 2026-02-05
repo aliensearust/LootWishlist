@@ -44,7 +44,7 @@ read_globals = {
 
     -- Encounter Journal
     "EJ_SelectTier", "EJ_SetLootFilter", "EJ_ResetLootFilter",
-    "EJ_SetDifficulty", "EJ_GetInstanceByIndex", "EJ_SelectInstance",
+    "EJ_SetDifficulty", "EJ_GetDifficulty", "EJ_GetInstanceByIndex", "EJ_SelectInstance",
     "EJ_GetEncounterInfoByIndex", "EJ_SelectEncounter", "EJ_GetNumLoot",
     "EJ_GetNumTiers", "EJ_GetTierInfo", "EJ_GetCurrentTier",
     "EJ_GetCurrentInstance", "EJ_GetInstanceInfo",

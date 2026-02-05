@@ -92,11 +92,9 @@ local function BuildDataProviderData(ns)
                     rowType = "item",
                     itemID = entry.itemID,
                     sourceText = entry.sourceText or "",
-                    upgradeTrack = entry.upgradeTrack,
                     itemLink = entry.itemLink,
-                    isLegacy = (entry.upgradeTrack == nil),
                     isCollected = ns:IsItemCollected(entry.itemID),
-                    isChecked = ns:IsItemChecked(entry.itemID, entry.sourceText, entry.upgradeTrack),
+                    isChecked = ns:IsItemChecked(entry.itemID, entry.sourceText),
                     isSelected = (selectedItemID == entry.itemID),
                 })
             end
@@ -234,7 +232,7 @@ function ns:CreateMainWindow()
                 if button == "RightButton" then
                     ns:ShowItemContextMenu(elementData)
                 else
-                    ns:ToggleItemChecked(elementData.itemID, elementData.sourceText, elementData.upgradeTrack)
+                    ns:ToggleItemChecked(elementData.itemID, elementData.sourceText)
                 end
                 ns:RefreshMainWindow()
             end)
@@ -576,7 +574,6 @@ end
 function ns:ShowItemContextMenu(elementData)
     local itemID = elementData.itemID
     local sourceText = elementData.sourceText
-    local currentTrack = elementData.upgradeTrack
     local isCollected = elementData.isCollected
 
     MenuUtil.CreateContextMenu(UIParent, function(ownerRegion, rootDescription)
@@ -590,22 +587,6 @@ function ns:ShowItemContextMenu(elementData)
             end
             ns:RefreshMainWindow()
         end)
-
-        -- Change Track submenu
-        local trackSubmenu = rootDescription:CreateButton("Change Track")
-        local LABELS = ns.TRACK_LABELS
-        for _, track in ipairs(ns.TRACKS) do
-            trackSubmenu:CreateRadio(LABELS[track],
-                function() return currentTrack == track end,
-                function()
-                    ns:UpdateItemTrack(itemID, sourceText, track)
-                    ns:RefreshMainWindow()
-                end
-            )
-        end
-
-        -- Divider
-        rootDescription:CreateDivider()
 
         -- Remove option
         local removeBtn = rootDescription:CreateButton("|cffff6666Remove from Wishlist|r", function()

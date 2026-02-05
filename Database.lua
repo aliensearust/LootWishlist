@@ -8,20 +8,7 @@ local pairs, ipairs, type = pairs, ipairs, type
 local tinsert, wipe = table.insert, wipe
 
 -- Database version for migrations
-local DB_VERSION = 5
-
--- Track constants are defined in TrackData.lua (auto-generated)
--- Reference them here for backward compatibility after TrackData loads
--- ns.TRACKS and ns.TRACK_LABELS are set from ns.TRACK_DATA in Core.lua
-
-ns.TRACK_BADGE = {
-    explorer = {text = "[Exp]", color = {0.4, 0.8, 0.4}},    -- muted green
-    adventurer = {text = "[Adv]", color = {0.4, 0.6, 0.9}},  -- muted blue
-    veteran = {text = "[Vet]", color = {0.6, 0.4, 0.8}},     -- muted purple
-    champion = {text = "[Champ]", color = {0.9, 0.6, 0.3}},  -- muted orange
-    hero = {text = "[Hero]", color = {1.0, 0.82, 0.0}},      -- gold
-    myth = {text = "[Myth]", color = {1.0, 0.5, 0.0}},       -- bright orange
-}
+local DB_VERSION = 6
 
 -- Default database structure
 local DEFAULTS = {
@@ -38,7 +25,6 @@ local DEFAULTS = {
         alertSound = 8959, -- SOUNDKIT.RAID_WARNING
         browserSize = 1, -- 1 = Normal, 2 = Large
         collapsedGroups = {},  -- Persist collapse state
-        defaultTrack = "hero", -- Default track for adding items
         minimapIcon = {
             hide = false,
             minimapPos = 220,
@@ -167,6 +153,22 @@ function ns:MigrateDatabase()
         end
     end
 
+    -- Version 5 -> 6 migration: Remove track feature
+    if db.version < 6 then
+        -- Remove upgradeTrack from all wishlist items
+        for _, wishlist in pairs(db.wishlists) do
+            for _, entry in ipairs(wishlist.items) do
+                entry.upgradeTrack = nil
+            end
+        end
+        -- Remove defaultTrack setting
+        if db.settings then
+            db.settings.defaultTrack = nil
+        end
+        -- Clear legacy notification (no longer relevant)
+        db.pendingLegacyNotification = nil
+    end
+
     db.version = DB_VERSION
 end
 
@@ -233,14 +235,14 @@ function ns:GetCollectedItems()
 end
 
 -- Check if item is checked off
-function ns:IsItemChecked(itemID, sourceText, upgradeTrack)
-    local key = itemID .. "_" .. (sourceText or "") .. "_" .. (upgradeTrack or "")
+function ns:IsItemChecked(itemID, sourceText)
+    local key = itemID .. "_" .. (sourceText or "")
     return self.charDB.checkedItems[key] == true
 end
 
 -- Toggle item checked state
-function ns:ToggleItemChecked(itemID, sourceText, upgradeTrack)
-    local key = itemID .. "_" .. (sourceText or "") .. "_" .. (upgradeTrack or "")
+function ns:ToggleItemChecked(itemID, sourceText)
+    local key = itemID .. "_" .. (sourceText or "")
     if self.charDB.checkedItems[key] then
         self.charDB.checkedItems[key] = nil
     else
@@ -263,7 +265,7 @@ function ns:RemoveCheckedItems()
     -- Remove checked items from wishlist
     local newItems = {}
     for _, entry in ipairs(wishlist.items) do
-        local key = entry.itemID .. "_" .. (entry.sourceText or "") .. "_" .. (entry.upgradeTrack or "")
+        local key = entry.itemID .. "_" .. (entry.sourceText or "")
         if not checkedItems[key] then
             table.insert(newItems, entry)
         end

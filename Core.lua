@@ -76,13 +76,6 @@ function ns:OnPlayerLogin()
 
     -- Print load message
     print("|cff00ccffLootWishlist|r loaded. Type |cff00ff00/lw|r for options.")
-
-    -- Check for pending legacy notification (v3 -> v4 migration)
-    if ns.db.pendingLegacyNotification and ns.db.pendingLegacyNotification > 0 then
-        local count = ns.db.pendingLegacyNotification
-        print("|cff00ccffLootWishlist|r: " .. count .. " items need track data for alerts. Re-add from Browse panel.")
-        ns.db.pendingLegacyNotification = nil
-    end
 end
 
 -- Initialize minimap icon using LibDBIcon

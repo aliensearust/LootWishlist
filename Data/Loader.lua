@@ -39,20 +39,6 @@ for _, diff in ipairs(RAID_DIFFICULTIES) do
 end
 
 -------------------------------------------------------------------------------
--- EJ API Helpers
--------------------------------------------------------------------------------
-
--- Save and restore EJ state to avoid side effects
-local function WithEJState(func)
-    local savedTier = EJ_GetCurrentTier()
-    local result = func()
-    if savedTier then
-        EJ_SelectTier(savedTier)
-    end
-    return result
-end
-
--------------------------------------------------------------------------------
 -- Data Access Functions
 -------------------------------------------------------------------------------
 
@@ -93,32 +79,35 @@ function ns:GetInstancesForTier(tierID, isRaid)
 
     local instances = {}
 
-    WithEJState(function()
-        EJ_SelectTier(tierID)
+    EJ_SelectTier(tierID)
 
-        local index = 1
-        while true do
-            local instanceID, instanceName, _, _, _, _, _, _, order = EJ_GetInstanceByIndex(index, isRaid)
-            if not instanceID then break end
+    local index = 1
+    while true do
+        local instanceID, instanceName, _, _, _, _, _, _, order = EJ_GetInstanceByIndex(index, isRaid)
+        if not instanceID then break end
 
-            table.insert(instances, {
-                id = instanceID,
-                name = instanceName,
-                order = order or index,
-            })
+        -- Select instance to get shouldDisplayDifficulty
+        EJ_SelectInstance(instanceID)
+        local _, _, _, _, _, _, _, _, shouldDisplayDifficulty = EJ_GetInstanceInfo()
 
-            -- Cache instance info
-            ns.Data._instanceInfo[instanceID] = {
-                id = instanceID,
-                name = instanceName,
-                tierID = tierID,
-                isRaid = isRaid,
-                order = order or index,
-            }
+        table.insert(instances, {
+            id = instanceID,
+            name = instanceName,
+            order = order or index,
+        })
 
-            index = index + 1
-        end
-    end)
+        -- Cache instance info with shouldDisplayDifficulty
+        ns.Data._instanceInfo[instanceID] = {
+            id = instanceID,
+            name = instanceName,
+            tierID = tierID,
+            isRaid = isRaid,
+            order = order or index,
+            shouldDisplayDifficulty = shouldDisplayDifficulty,
+        }
+
+        index = index + 1
+    end
 
     -- Sort by order (ascending)
     table.sort(instances, function(a, b) return a.order < b.order end)
@@ -163,7 +152,7 @@ function ns:GetInstanceInfo(instanceID)
     local savedInstance = EJ_GetCurrentInstance and EJ_GetCurrentInstance()
 
     EJ_SelectInstance(instanceID)
-    local name, _, _, _, _, _, dungeonAreaMapID = EJ_GetInstanceInfo()
+    local name, _, _, _, _, _, dungeonAreaMapID, _, shouldDisplayDifficulty = EJ_GetInstanceInfo()
 
     -- Restore previous state
     if savedInstance and savedInstance > 0 then
@@ -179,6 +168,7 @@ function ns:GetInstanceInfo(instanceID)
         tierID = nil,
         isRaid = nil,
         order = nil,
+        shouldDisplayDifficulty = shouldDisplayDifficulty,
     }
 
     -- Try to find in cache from tier loading
@@ -190,6 +180,11 @@ end
 function ns:GetDifficultiesForInstance(instanceID)
     local info = ns:GetInstanceInfo(instanceID)
     if not info then return {} end
+
+    -- World bosses and other instances without difficulty selection
+    if info.shouldDisplayDifficulty == false then
+        return {}
+    end
 
     -- Determine if raid or dungeon based on cached info or EJ query
     local isRaid = info.isRaid
